@@ -196,3 +196,26 @@ def test_delete_cascades_photo_rows_in_db(authed):
 def test_frontend_root_served(client):
     # Frontend dir is currently empty; the mount should still not break /api routes.
     assert client.get("/api/sessions").status_code == 401
+
+
+def test_profile_defaults_then_save(authed):
+    r = authed.get("/api/profile")
+    assert r.status_code == 200
+    assert r.json()["checkin_every_days"] == 7
+    assert r.json()["name"] is None
+
+    body = {"name": "Luis", "start_weight_kg": 90, "goal_weight_kg": 80, "height_cm": 180, "age": 30, "checkin_every_days": 14}
+    assert authed.put("/api/profile", json=body).json() == body
+    assert authed.get("/api/profile").json() == body
+
+    # Saving again overwrites the single row instead of adding one
+    authed.put("/api/profile", json={**body, "goal_weight_kg": 78})
+    assert authed.get("/api/profile").json()["goal_weight_kg"] == 78
+    conn = sqlite3.connect(DATA / "fitness.db")
+    assert conn.execute("SELECT COUNT(*) FROM profile").fetchone()[0] == 1
+    conn.close()
+
+
+@pytest.mark.parametrize("field,value", [("height_cm", 10), ("age", 200), ("checkin_every_days", 0), ("goal_weight_kg", 500)])
+def test_profile_rejects_out_of_range(authed, field, value):
+    assert authed.put("/api/profile", json={field: value}).status_code == 422

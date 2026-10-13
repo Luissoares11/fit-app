@@ -21,12 +21,22 @@ def init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (session_id, angle)
             );
+            CREATE TABLE IF NOT EXISTS profile (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                name TEXT,
+                start_weight_kg REAL,
+                goal_weight_kg REAL,
+                height_cm REAL,
+                age INTEGER,
+                checkin_every_days INTEGER NOT NULL DEFAULT 7
+            );
             """
         )
 
 
 def get_db():
-    conn = sqlite3.connect(config.DB_PATH)
+    # FastAPI may open and close this connection on different threads; each request has its own
+    conn = sqlite3.connect(config.DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:

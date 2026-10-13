@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config
 from .auth import router as auth_router
 from .db import init_db
-from .routes import photos, sessions, weights
+from .routes import photos, profile, sessions, weights
 
 config.PHOTO_DIR.mkdir(parents=True, exist_ok=True)
 init_db()
@@ -15,6 +15,7 @@ app.include_router(auth_router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
 app.include_router(photos.router, prefix="/api")
 app.include_router(weights.router, prefix="/api")
+app.include_router(profile.router, prefix="/api")
 
 # Serves the frontend at / once it exists. Mounted last so /api and /docs win.
 if config.FRONTEND_DIR.is_dir():
