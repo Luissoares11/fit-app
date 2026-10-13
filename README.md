@@ -33,9 +33,33 @@ PRs are never entered by hand. They are calculated from the logged sets, so the 
    docker compose up --build
    ```
 
-   The backend runs on port 8000 and stores data in `./data`.
+   The app listens on `127.0.0.1:8100` (localhost only) and stores data in `./data`.
 
    The image builds the frontend and serves it from the same port, so there is no separate web server to run.
+
+## Access from your devices (Tailscale)
+
+The app is only reachable from the server itself. Tailscale serve publishes it to your tailnet over HTTPS, so your other devices reach it without opening any port to the internet.
+
+The tailnet publishing rules are shared by every app on the same machine. Before you change anything, look at what is already published:
+
+```bash
+tailscale serve status
+```
+
+1. In the Tailscale admin console, enable **MagicDNS** and **HTTPS certificates** (DNS page). You only do this once.
+2. Choose a free HTTPS port. The default `443` gives a clean address (`https://<server>.<tailnet>.ts.net`), but it is often already taken. Check with `sudo ss -tlnp`. The app listens on local port `8100` (set in `docker-compose.yml`); pick a free HTTPS port such as `8444`.
+3. Set `COOKIE_SECURE=true` in `.env`, then start the app with `docker compose up -d --build`.
+4. Publish the app, using your chosen port:
+
+   ```bash
+   sudo tailscale serve --bg --https=8444 http://127.0.0.1:8100
+   tailscale serve status
+   ```
+
+5. On each device, turn on Tailscale, open the address from the status, and log in.
+
+To stop sharing only this app, remove its rule (for example `sudo tailscale serve --https=8444 off`). Do not run `tailscale serve reset`: it removes every published app on the machine, including other apps. Do not use `tailscale funnel`: it publishes the app to the whole internet.
 
 ## Development
 

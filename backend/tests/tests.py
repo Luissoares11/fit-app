@@ -62,8 +62,15 @@ def test_login_bad_token(client):
 def test_login_sets_cookie_and_cookie_grants_access(client):
     r = client.post("/api/login", json={"token": "test-token-123"})
     assert r.status_code == 200
-    assert "token" in r.cookies
+    assert "fit_session" in r.cookies
+    assert r.cookies["fit_session"] != "test-token-123"  # the raw token is never stored in the browser
     assert client.get("/api/sessions").status_code == 200
+
+
+def test_foreign_cookie_named_token_does_not_grant_access(client):
+    # Another app on the same host might set a cookie called "token"
+    client.cookies.set("token", "test-token-123")
+    assert client.get("/api/sessions").status_code == 401
 
 
 def test_header_token_grants_access(client):
