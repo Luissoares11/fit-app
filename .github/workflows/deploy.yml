@@ -16,14 +16,41 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r backend/requirements.txt
+        run: pip install -r backend/requirements-dev.txt
 
       - name: Run tests
         run: pytest backend/tests/tests.py -v
 
-  deploy:
-    needs: test
+  frontend:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  deploy:
+    needs: [test, frontend]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     steps:
       - name: Connect to Tailscale
         uses: tailscale/github-action@v2
@@ -38,7 +65,9 @@ jobs:
           host: ${{ secrets.EDITH_SSH_HOST }}
           username: ${{ secrets.EDITH_SSH_USERNAME }}
           key: ${{ secrets.EDITH_SSH_KEY }}
+          script_stop: true
           script: |
+            set -e
             cd ~/fit-app
             git pull
             docker compose build

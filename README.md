@@ -86,8 +86,8 @@ The Vite dev server proxies `/api` to `http://localhost:8000`. Open the URL it p
 ## Tests
 
 ```bash
-pip install pytest httpx
 cd backend
+pip install -r requirements-dev.txt
 python -m pytest tests/tests.py
 ```
 
