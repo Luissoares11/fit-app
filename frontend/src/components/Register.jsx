@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createSession, getProfile, listSessions, uploadPhoto } from '../api'
-import { addDays, daysBetween, formatDay, localDay, toDay, todayIso } from '../dates'
+import { WEEKDAY_NAMES, daysBetween, formatDay, localDay, nextCheckIn, toDay, todayIso } from '../dates'
+import DateInput from './DateInput'
 import PhotoSlot from './PhotoSlot'
 
 const ANGLES = ['front', 'back', 'side']
@@ -27,7 +28,11 @@ export default function Register() {
 
   // sessions come newest first; with no check-in yet, one is due today
   const today = localDay()
-  const due = sessions[0] ? addDays(toDay(sessions[0].date), profile.checkin_every_days) : today
+  const every = profile.checkin_every_weeks
+  const dayName = WEEKDAY_NAMES[profile.checkin_weekday]
+  const due = sessions[0]
+    ? nextCheckIn(toDay(sessions[0].date), profile.checkin_weekday, every)
+    : today
   const daysLeft = daysBetween(today, due)
 
   if (daysLeft > 0 && !override) {
@@ -36,6 +41,7 @@ export default function Register() {
         <p className="muted">Next weight check-in</p>
         <p className="hero">{daysLeft === 1 ? 'Tomorrow' : `in ${daysLeft} days`}</p>
         <p className="muted">{formatDay(due)}</p>
+        <p className="muted small">{every === 1 ? `Every ${dayName}` : `Every ${every} weeks on ${dayName}`}</p>
         <button className="primary" onClick={() => setOverride(true)}>
           Log now
         </button>
@@ -65,6 +71,11 @@ function WeightForm({ early, onSaved }) {
 
   async function save(e) {
     e.preventDefault()
+
+    if (!date) {
+      setStatus({ type: 'error', message: 'Enter a valid date (dd/mm/yyyy)' })
+      return
+    }
 
     // Phone keyboards in Portugal type 80,5 so accept both separators
     const weightKg = parseFloat(weight.replace(',', '.'))
@@ -109,7 +120,7 @@ function WeightForm({ early, onSaved }) {
 
       <label className="field">
         <span>Date</span>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+        <DateInput defaultValue={date} onChange={setDate} />
       </label>
 
       <label className="field">

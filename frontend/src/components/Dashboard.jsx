@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { getProfile, getWeights } from '../api'
+import { getMuscleGroups, getPlan, getProfile, getWeights } from '../api'
+import { WEEKDAY_NAMES, localDay, weekdayIndex } from '../dates'
 import WeightChart from './WeightChart'
 
 function GoalProgress({ profile, weights }) {
@@ -37,32 +38,59 @@ function GoalProgress({ profile, weights }) {
   )
 }
 
+// Today's gym plan: the day and its muscle groups (display only)
+function TodayPlan({ groups, plan }) {
+  const todayIndex = weekdayIndex(localDay())
+  const ids = plan.days.find((d) => d.weekday === todayIndex)?.muscle_group_ids ?? []
+
+  return (
+    <section className="card">
+      <h2 className="today-day">{WEEKDAY_NAMES[todayIndex]}</h2>
+      {ids.length === 0 && <p className="hero">Rest day</p>}
+      {groups
+        .filter((g) => ids.includes(g.id))
+        .map((g) => (
+          <h3 key={g.id} className="today-group">
+            {g.name}
+          </h3>
+        ))}
+    </section>
+  )
+}
+
 export default function Dashboard() {
   const [profile, setProfile] = useState(null)
   const [weights, setWeights] = useState(null)
+  const [gym, setGym] = useState(null) // { groups, plan }
   const [error, setError] = useState('')
 
   useEffect(() => {
-    Promise.all([getProfile(), getWeights()])
-      .then(([p, w]) => {
+    Promise.all([getProfile(), getWeights(), getMuscleGroups(), getPlan()])
+      .then(([p, w, groups, plan]) => {
         setProfile(p)
         setWeights(w)
+        setGym({ groups, plan })
       })
       .catch((err) => setError(err.message))
   }, [])
 
   if (error) return <p className="status error">{error}</p>
-  if (!profile || !weights) return <p className="muted center">Loading…</p>
-  if (weights.length === 0) {
-    return <p className="muted center">Log your first check-in to see your progress.</p>
-  }
+  if (!profile || !weights || !gym) return <p className="muted center">Loading…</p>
 
   return (
     <>
-      <GoalProgress profile={profile} weights={weights} />
-      <section className="card">
-        <WeightChart points={weights} />
-      </section>
+      <TodayPlan groups={gym.groups} plan={gym.plan} />
+
+      {weights.length === 0 ? (
+        <p className="muted center">Log your first check-in to see your progress.</p>
+      ) : (
+        <>
+          <GoalProgress profile={profile} weights={weights} />
+          <section className="card">
+            <WeightChart points={weights} />
+          </section>
+        </>
+      )}
     </>
   )
 }

@@ -1,0 +1,12 @@
+# Keep secrets, local data and dependencies out of the image
+.git
+.env
+.env.*
+!.env.example
+data
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/.pytest_cache
+backend/tests

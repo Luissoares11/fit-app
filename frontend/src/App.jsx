@@ -3,14 +3,17 @@ import { listSessions, logout } from './api'
 import Login from './components/Login'
 import Dashboard from './components/Dashboard'
 import Register from './components/Register'
+import Gym from './components/Gym/Gym'
 import Progress from './components/Progress'
 import Profile from './components/Profile'
+import { DashboardIcon, GymIcon, ProfileIcon, ProgressIcon, RegisterIcon } from './components/Icons'
 
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard', Page: Dashboard },
-  { id: 'register', label: 'Register', Page: Register },
-  { id: 'progress', label: 'Progress', Page: Progress },
-  { id: 'profile', label: 'Profile', Page: Profile },
+  { id: 'dashboard', label: 'Dashboard', Page: Dashboard, Icon: DashboardIcon },
+  { id: 'register', label: 'Register', Page: Register, Icon: RegisterIcon },
+  { id: 'gym', label: 'Gym', Page: Gym, Icon: GymIcon },
+  { id: 'progress', label: 'Progress', Page: Progress, Icon: ProgressIcon },
+  { id: 'profile', label: 'Profile', Page: Profile, Icon: ProfileIcon },
 ]
 
 export default function App() {
@@ -71,7 +74,8 @@ export default function App() {
       <nav className={menuOpen ? 'drawer open' : 'drawer'} aria-label="Pages" inert={!menuOpen}>
         {TABS.map((t) => (
           <button key={t.id} className={t.id === tab ? 'active' : ''} onClick={() => pick(t.id)}>
-            {t.label}
+            <t.Icon />
+            <span>{t.label}</span>
           </button>
         ))}
       </nav>

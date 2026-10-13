@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
 import { getProfile, saveProfile } from '../api'
+import { WEEKDAY_NAMES } from '../dates'
+
+const WEEKDAY_OPTIONS = WEEKDAY_NAMES.map((name, i) => ({ value: i, label: name }))
+
+const REPEAT_OPTIONS = [
+  { value: 1, label: 'Every week' },
+  { value: 2, label: 'Every 2 weeks' },
+  { value: 3, label: 'Every 3 weeks' },
+  { value: 4, label: 'Every 4 weeks' },
+]
 
 const FIELDS = [
   { key: 'name', label: 'Name', mode: 'text' },
@@ -7,7 +17,8 @@ const FIELDS = [
   { key: 'height_cm', label: 'Height (cm)', mode: 'decimal' },
   { key: 'start_weight_kg', label: 'Start weight (kg)', mode: 'decimal' },
   { key: 'goal_weight_kg', label: 'Goal weight (kg)', mode: 'decimal' },
-  { key: 'checkin_every_days', label: 'Check-in every (days)', mode: 'numeric', integer: true },
+  { key: 'checkin_weekday', label: 'Check-in day', integer: true, options: WEEKDAY_OPTIONS },
+  { key: 'checkin_every_weeks', label: 'Check-in repeats', integer: true, options: REPEAT_OPTIONS },
 ]
 
 // Form holds text so half-typed values survive; null means not set
@@ -47,7 +58,6 @@ export default function Profile() {
       if (Object.values(body).some((v) => Number.isNaN(v))) {
         throw new Error('Check the numbers')
       }
-      body.checkin_every_days ??= 7
 
       setForm(toForm(await saveProfile(body)))
       setStatus({ type: 'ok', message: 'Saved' })
@@ -58,15 +68,25 @@ export default function Profile() {
 
   return (
     <form onSubmit={save}>
-      {FIELDS.map(({ key, label, mode }) => (
+      {FIELDS.map(({ key, label, mode, options }) => (
         <label className="field" key={key}>
           <span>{label}</span>
-          <input
-            type="text"
-            inputMode={mode}
-            value={form[key]}
-            onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-          />
+          {options ? (
+            <select value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}>
+              {options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              inputMode={mode}
+              value={form[key]}
+              onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+            />
+          )}
         </label>
       ))}
 
