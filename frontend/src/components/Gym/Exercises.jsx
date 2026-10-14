@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import ExerciseDetail from './ExerciseDetail'
 import ExerciseForm from './ExerciseForm'
+import MuscleGroupForm from './MuscleGroupForm'
 
 export default function Exercises({ groups, exercises, onChanged }) {
   const [adding, setAdding] = useState(null) // group id whose add form is open
+  const [addingGroup, setAddingGroup] = useState(false) // add-muscle-group form open
+  const [editingGroupId, setEditingGroupId] = useState(null) // group whose rename/delete form is open
   const [openId, setOpenId] = useState(null) // exercise whose detail view is open
   const [error, setError] = useState('')
 
@@ -32,10 +35,26 @@ export default function Exercises({ groups, exercises, onChanged }) {
           <section key={g.id} className="group">
             <div className="group-head">
               <h2 className="group-name">{g.name}</h2>
-              <button className="link" onClick={() => setAdding(adding === g.id ? null : g.id)}>
-                {adding === g.id ? 'Cancel' : '+ Add'}
-              </button>
+              <span>
+                <button
+                  className="link"
+                  onClick={() => setEditingGroupId(editingGroupId === g.id ? null : g.id)}
+                >
+                  {editingGroupId === g.id ? 'Cancel' : 'Edit'}
+                </button>{' '}
+                <button className="link" onClick={() => setAdding(adding === g.id ? null : g.id)}>
+                  {adding === g.id ? 'Cancel' : '+ Add'}
+                </button>
+              </span>
             </div>
+
+            {editingGroupId === g.id && (
+              <MuscleGroupForm
+                group={g}
+                onChanged={onChanged}
+                onDone={() => setEditingGroupId(null)}
+              />
+            )}
 
             {adding === g.id && (
               <ExerciseForm
@@ -69,6 +88,20 @@ export default function Exercises({ groups, exercises, onChanged }) {
           </section>
         )
       })}
+
+      <section className="group">
+        <div className="group-head">
+          <button className="link" onClick={() => setAddingGroup((v) => !v)}>
+            {addingGroup ? 'Cancel' : '+ Add muscle group'}
+          </button>
+        </div>
+        {addingGroup && (
+          <MuscleGroupForm
+            onChanged={onChanged}
+            onDone={() => setAddingGroup(false)}
+          />
+        )}
+      </section>
     </>
   )
 }

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import require_token
 from ..db import get_db
-from ..schemas import ExerciseIn, ExercisePatch
+from ..schemas import ExerciseIn, ExercisePatch, MuscleGroupIn
 
 router = APIRouter(dependencies=[Depends(require_token)])
 
@@ -24,6 +24,40 @@ def _exercise(conn: sqlite3.Connection, exercise_id: int) -> dict:
 def list_muscle_groups(conn: sqlite3.Connection = Depends(get_db)):
     rows = conn.execute("SELECT id, name FROM muscle_groups ORDER BY id").fetchall()
     return [dict(r) for r in rows]
+
+
+@router.post("/muscle-groups", status_code=201)
+def create_muscle_group(body: MuscleGroupIn, conn: sqlite3.Connection = Depends(get_db)):
+    try:
+        cur = conn.execute("INSERT INTO muscle_groups (name) VALUES (?)", (body.name,))
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="That muscle group already exists")
+    return dict(conn.execute("SELECT id, name FROM muscle_groups WHERE id = ?", (cur.lastrowid,)).fetchone())
+
+
+@router.patch("/muscle-groups/{group_id}")
+def update_muscle_group(group_id: int, body: MuscleGroupIn, conn: sqlite3.Connection = Depends(get_db)):
+    if not _group_exists(conn, group_id):
+        raise HTTPException(status_code=404, detail="Muscle group not found")
+    try:
+        conn.execute("UPDATE muscle_groups SET name = ? WHERE id = ?", (body.name, group_id))
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="That muscle group already exists")
+    return dict(conn.execute("SELECT id, name FROM muscle_groups WHERE id = ?", (group_id,)).fetchone())
+
+
+@router.delete("/muscle-groups/{group_id}", status_code=204)
+def delete_muscle_group(group_id: int, conn: sqlite3.Connection = Depends(get_db)):
+    if not _group_exists(conn, group_id):
+        raise HTTPException(status_code=404, detail="Muscle group not found")
+    # Exercises (archived ones too) and plan days point at the group, so refuse rather than orphan them
+    if conn.execute("SELECT 1 FROM exercises WHERE muscle_group_id = ? LIMIT 1", (group_id,)).fetchone():
+        raise HTTPException(
+            status_code=409, detail="This muscle group still has exercises. Move or delete them first"
+        )
+    if conn.execute("SELECT 1 FROM plan_days WHERE muscle_group_id = ? LIMIT 1", (group_id,)).fetchone():
+        raise HTTPException(status_code=409, detail="This muscle group is in your weekly plan. Remove it from the plan first")
+    conn.execute("DELETE FROM muscle_groups WHERE id = ?", (group_id,))
 
 
 @router.get("/exercises")
@@ -107,9 +141,19 @@ def update_exercise(exercise_id: int, body: ExercisePatch, conn: sqlite3.Connect
     return _exercise(conn, exercise_id)
 
 
-@router.delete("/exercises/{exercise_id}", status_code=204)
+@router.post("/exercises/{exercise_id}/archive", status_code=204)
 def archive_exercise(exercise_id: int, conn: sqlite3.Connection = Depends(get_db)):
-    # Archived, not deleted: logged sets will reference this exercise later
+    # Archived, not deleted: keeps the history of an exercise that has logged sets
     cur = conn.execute("UPDATE exercises SET archived = 1 WHERE id = ?", (exercise_id,))
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="Exercise not found")
+
+
+@router.delete("/exercises/{exercise_id}", status_code=204)
+def delete_exercise(exercise_id: int, conn: sqlite3.Connection = Depends(get_db)):
+    if conn.execute("SELECT 1 FROM exercises WHERE id = ?", (exercise_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Exercise not found")
+    # Logged sets would be lost with it, so only exercises without history can be deleted
+    if conn.execute("SELECT 1 FROM workout_sets WHERE exercise_id = ? LIMIT 1", (exercise_id,)).fetchone():
+        raise HTTPException(status_code=409, detail="This exercise has logged sets. Archive it instead")
+    conn.execute("DELETE FROM exercises WHERE id = ?", (exercise_id,))

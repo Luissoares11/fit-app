@@ -97,7 +97,7 @@ Notes:
 
 Seed in `init_db`, idempotently (running it twice must not duplicate anything).
 
-Muscle groups: `chest`, `back`, `shoulders`, `biceps`, `triceps`, `legs`, `glutes`, `abs`, `forearms`. Use `INSERT OR IGNORE`. Databases seeded earlier with Portuguese names are renamed on startup (`LEGACY_NAMES` in `db.py`).
+Muscle groups: `chest`, `back`, `shoulders`, `biceps`, `triceps`, `legs`, `glutes`, `abs`, `forearms`. The defaults are seeded once per database (tracked in `app_meta`), so renamed or deleted groups stay that way. Databases seeded earlier with Portuguese names are renamed on startup (`LEGACY_NAMES` in `db.py`).
 
 Starter exercises, inserted **only if the `exercises` table is empty** (so exercises the user archives do not come back on restart):
 
@@ -150,10 +150,14 @@ All routes under `/api`, all authenticated.
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/muscle-groups` | `[{id, name}]` |
+| POST | `/muscle-groups` | `{name}`. Trim and lowercase the name. 201 with `{id, name}`. 409 if the name already exists. 422 for an empty name or one longer than 40 characters |
+| PATCH | `/muscle-groups/{id}` | `{name}`, same rules as POST. 200 with `{id, name}`. 404 if missing, 409 on duplicate. Exercises and plan days follow the group by id |
+| DELETE | `/muscle-groups/{id}` | 204. 409 if any exercise (archived ones too) or any plan day uses the group. 404 if missing |
 | GET | `/exercises` | Non-archived only. Optional `?muscle_group_id=`. Each item: `{id, name, muscle_group_id}` |
 | POST | `/exercises` | `{name, muscle_group_id}`. Trim the name. 409 if the same name already exists in that group. 422 for an unknown group or empty name |
 | PATCH | `/exercises/{id}` | Optional `name` and `muscle_group_id`. 404 if missing, 409 on duplicate |
-| DELETE | `/exercises/{id}` | Archives (sets `archived = 1`), returns 204. 404 if missing |
+| POST | `/exercises/{id}/archive` | Archives (sets `archived = 1`), returns 204. Idempotent. 404 if missing |
+| DELETE | `/exercises/{id}` | Permanently deletes the exercise, returns 204. 409 if it has logged sets (archive it instead). 404 if missing |
 | GET | `/plan` | `{days: [{weekday, muscle_group_ids: [..]}]}`, training days only, sorted by weekday |
 | PUT | `/plan` | Replaces the whole plan atomically in one transaction. Same shape as GET |
 

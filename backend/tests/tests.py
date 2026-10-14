@@ -269,9 +269,13 @@ def test_profile_migrates_old_schema(tmp_path, monkeypatch):
 
 GYM_ROUTES = [
     ("get", "/api/muscle-groups"),
+    ("post", "/api/muscle-groups"),
+    ("patch", "/api/muscle-groups/1"),
+    ("delete", "/api/muscle-groups/1"),
     ("get", "/api/exercises"),
     ("post", "/api/exercises"),
     ("patch", "/api/exercises/1"),
+    ("post", "/api/exercises/1/archive"),
     ("delete", "/api/exercises/1"),
     ("get", "/api/plan"),
     ("put", "/api/plan"),
@@ -290,6 +294,13 @@ def _group_ids(client):
 def _count(table):
     conn = sqlite3.connect(DATA / "fitness.db")
     n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    conn.close()
+    return n
+
+
+def _count_where(table, clause, value):
+    conn = sqlite3.connect(DATA / "fitness.db")
+    n = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {clause}", (value,)).fetchone()[0]
     conn.close()
     return n
 
@@ -326,10 +337,101 @@ def test_exercise_create_list_rename_move_archive(authed):
     r = authed.patch(f"/api/exercises/{ex['id']}", json={"muscle_group_id": groups["triceps"]})
     assert r.json()["muscle_group_id"] == groups["triceps"]
 
-    assert authed.delete(f"/api/exercises/{ex['id']}").status_code == 204
+    assert authed.post(f"/api/exercises/{ex['id']}/archive").status_code == 204
     assert all(e["id"] != ex["id"] for e in authed.get("/api/exercises").json())
-    assert authed.delete(f"/api/exercises/{ex['id']}").status_code == 204  # archiving twice is harmless
+    assert authed.post(f"/api/exercises/{ex['id']}/archive").status_code == 204  # archiving twice is harmless
+    assert authed.post("/api/exercises/999999/archive").status_code == 404
+
+
+def test_delete_unused_exercise(authed):
+    groups = _group_ids(authed)
+    ex = authed.post("/api/exercises", json={"name": "Test delete me", "muscle_group_id": groups["abs"]}).json()
+    assert authed.delete(f"/api/exercises/{ex['id']}").status_code == 204
+    assert _count_where("exercises", "id = ?", ex["id"]) == 0  # really gone, not archived
+    assert authed.delete(f"/api/exercises/{ex['id']}").status_code == 404
     assert authed.delete("/api/exercises/999999").status_code == 404
+
+
+def test_delete_exercise_with_history_is_refused(authed):
+    ex = _exercise(authed, "Test deadlift history")
+    authed.post(f"/api/exercises/{ex}/sets", json={"date": "2025-05-01", "sets": [{"weight_kg": 100, "reps": 3}]})
+    r = authed.delete(f"/api/exercises/{ex}")
+    assert r.status_code == 409
+    assert _count_where("exercises", "id = ?", ex) == 1
+    assert ex in [e["id"] for e in authed.get("/api/exercises").json()]
+    assert authed.post(f"/api/exercises/{ex}/archive").status_code == 204  # the fallback still works
+    assert authed.get(f"/api/exercises/{ex}/records").status_code == 200  # history kept
+
+
+def test_create_muscle_group(authed):
+    r = authed.post("/api/muscle-groups", json={"name": "  Calves  "})
+    assert r.status_code == 201
+    assert r.json()["name"] == "calves"
+    assert "calves" in [g["name"] for g in authed.get("/api/muscle-groups").json()]
+    assert authed.post("/api/muscle-groups", json={"name": "CALVES"}).status_code == 409
+    assert authed.post("/api/muscle-groups", json={"name": "chest"}).status_code == 409
+    assert authed.post("/api/muscle-groups", json={"name": "   "}).status_code == 422
+    assert authed.post("/api/muscle-groups", json={"name": "x" * 41}).status_code == 422
+
+    # A new group can hold exercises straight away
+    ex = authed.post("/api/exercises", json={"name": "Test seated calf raise", "muscle_group_id": r.json()["id"]})
+    assert ex.status_code == 201
+
+
+def test_rename_muscle_group(authed):
+    grp = authed.post("/api/muscle-groups", json={"name": "Test rename"}).json()
+    ex = authed.post("/api/exercises", json={"name": "Test renamed lift", "muscle_group_id": grp["id"]}).json()
+
+    r = authed.patch(f"/api/muscle-groups/{grp['id']}", json={"name": "  Test renamed  "})
+    assert r.status_code == 200
+    assert r.json() == {"id": grp["id"], "name": "test renamed"}
+    listed = authed.get("/api/exercises", params={"muscle_group_id": grp["id"]}).json()
+    assert [e["id"] for e in listed] == [ex["id"]]  # exercises follow the group by id
+
+    assert authed.patch(f"/api/muscle-groups/{grp['id']}", json={"name": "chest"}).status_code == 409
+    assert authed.patch(f"/api/muscle-groups/{grp['id']}", json={"name": "  "}).status_code == 422
+    assert authed.patch("/api/muscle-groups/999999", json={"name": "Nope"}).status_code == 404
+
+
+def test_delete_muscle_group(authed):
+    empty = authed.post("/api/muscle-groups", json={"name": "Test empty"}).json()["id"]
+    assert authed.delete(f"/api/muscle-groups/{empty}").status_code == 204
+    assert _count_where("muscle_groups", "id = ?", empty) == 0
+    assert authed.delete(f"/api/muscle-groups/{empty}").status_code == 404
+
+    used = authed.post("/api/muscle-groups", json={"name": "Test used"}).json()["id"]
+    ex = authed.post("/api/exercises", json={"name": "Test used lift", "muscle_group_id": used}).json()["id"]
+    r = authed.delete(f"/api/muscle-groups/{used}")
+    assert r.status_code == 409
+    assert "exercises" in r.json()["detail"]
+
+    # Archived exercises still point at the group, so they block the delete too
+    authed.post(f"/api/exercises/{ex}/archive")
+    assert authed.delete(f"/api/muscle-groups/{used}").status_code == 409
+    assert _count_where("muscle_groups", "id = ?", used) == 1
+
+
+def test_delete_muscle_group_in_plan_is_refused(authed):
+    grp = authed.post("/api/muscle-groups", json={"name": "Test planned"}).json()["id"]
+    plan = authed.get("/api/plan").json()
+    authed.put("/api/plan", json={"days": plan["days"] + [{"weekday": 6, "muscle_group_ids": [grp]}]})
+    r = authed.delete(f"/api/muscle-groups/{grp}")
+    assert r.status_code == 409
+    assert "plan" in r.json()["detail"]
+
+    authed.put("/api/plan", json=plan)  # restore the plan for later tests
+    assert authed.delete(f"/api/muscle-groups/{grp}").status_code == 204
+
+
+def test_deleted_or_renamed_group_does_not_come_back_on_restart(authed):
+    grp = authed.post("/api/muscle-groups", json={"name": "Test restart"}).json()
+    authed.patch(f"/api/muscle-groups/{grp['id']}", json={"name": "Test restart renamed"})
+    groups_before = _count("muscle_groups")
+    init_db()
+    init_db()
+    assert _count("muscle_groups") == groups_before
+    assert _count_where("muscle_groups", "name = ?", "test restart") == 0
+    assert _count_where("muscle_groups", "name = ?", "chest") == 1  # defaults are not duplicated either
 
 
 def test_duplicate_exercise_name_per_group(authed):
@@ -536,7 +638,7 @@ def test_quick_log_past_date_and_bodyweight_accepted(authed):
 
 def test_quick_log_missing_or_archived_exercise_is_404(authed):
     ex = _exercise(authed, "Test archived log")
-    authed.delete(f"/api/exercises/{ex}")
+    authed.post(f"/api/exercises/{ex}/archive")
     body = {"date": "2025-06-01", "sets": [{"weight_kg": 40, "reps": 10}]}
     assert authed.post(f"/api/exercises/{ex}/sets", json=body).status_code == 404
     assert authed.post("/api/exercises/999999/sets", json=body).status_code == 404
@@ -601,7 +703,7 @@ def test_deleting_last_set_removes_workout_but_one_of_many_keeps_it(authed):
 def test_archived_exercise_keeps_records_and_history(authed):
     ex = _exercise(authed, "Test archive history")
     authed.post(f"/api/exercises/{ex}/sets", json={"date": "2025-10-01", "sets": [{"weight_kg": 70, "reps": 4}]})
-    authed.delete(f"/api/exercises/{ex}")
+    authed.post(f"/api/exercises/{ex}/archive")
     rec = authed.get(f"/api/exercises/{ex}/records").json()
     assert rec["heaviest"]["weight_kg"] == 70
     assert rec["history"][0]["date"] == "2025-10-01"
@@ -720,7 +822,7 @@ def test_workout_rejects_future_empty_and_accepts_archived(authed):
     assert authed.post("/api/workouts", json={"date": tomorrow, "sets": [{"exercise_id": ex, "weight_kg": 50, "reps": 5}]}).status_code == 422
     assert authed.post("/api/workouts", json={"date": "2025-12-05", "sets": []}).status_code == 422
 
-    authed.delete(f"/api/exercises/{ex}")
+    authed.post(f"/api/exercises/{ex}/archive")
     r = authed.post("/api/workouts", json={"date": "2025-12-05", "sets": [{"exercise_id": ex, "weight_kg": 50, "reps": 5}]})
     assert r.status_code == 201
 

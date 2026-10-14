@@ -145,7 +145,11 @@ def _rename_legacy(conn: sqlite3.Connection) -> None:
 
 
 def _seed_gym(conn: sqlite3.Connection) -> None:
-    # Safe to run on every start: groups are ignored if present, starters only seed an empty library
+    # Runs once per database. Later starts must not re-add default groups or starter exercises,
+    # otherwise a renamed or deleted default would come back on the next restart.
+    conn.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    if conn.execute("SELECT 1 FROM app_meta WHERE key = 'gym_seeded'").fetchone():
+        return
     conn.executemany(
         "INSERT OR IGNORE INTO muscle_groups (name) VALUES (?)", [(g,) for g in MUSCLE_GROUPS]
     )
@@ -156,6 +160,7 @@ def _seed_gym(conn: sqlite3.Connection) -> None:
                 "INSERT INTO exercises (name, muscle_group_id) VALUES (?, ?)",
                 [(name, group_id) for name in names],
             )
+    conn.execute("INSERT INTO app_meta (key, value) VALUES ('gym_seeded', '1')")
 
 
 def get_db():

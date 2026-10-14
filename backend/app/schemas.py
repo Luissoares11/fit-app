@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field, StringConstraints, field_validator, model
 Angle = Literal["front", "back", "side"]
 
 ExerciseName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+# Lowercase like the seeded groups ("chest", "forearms")
+MuscleGroupName = Annotated[
+    str, StringConstraints(strip_whitespace=True, to_lower=True, min_length=1, max_length=40)
+]
 
 
 class SessionIn(BaseModel):
@@ -23,6 +27,10 @@ class ProfileIn(BaseModel):
     # 0 = Monday, same as Python's date.weekday()
     checkin_weekday: int = Field(0, ge=0, le=6)
     checkin_every_weeks: int = Field(1, ge=1, le=4)
+
+
+class MuscleGroupIn(BaseModel):
+    name: MuscleGroupName
 
 
 class ExerciseIn(BaseModel):

@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { archiveExercise, createExercise, updateExercise } from '../../api'
+import { archiveExercise, createExercise, deleteExercise, updateExercise } from '../../api'
 
-// Add (no exercise) or edit (rename, move, archive) an exercise
-export default function ExerciseForm({ groups, exercise, defaultGroupId, onChanged, onDone, onError }) {
+// Add (no exercise) or edit (rename, move, archive, delete) an exercise.
+// Delete is only offered when the exercise has no logged sets (canDelete).
+export default function ExerciseForm({ groups, exercise, defaultGroupId, canDelete = false, onChanged, onDone, onError }) {
   const [name, setName] = useState(exercise?.name ?? '')
   const [groupId, setGroupId] = useState(exercise?.muscle_group_id ?? defaultGroupId)
   const [busy, setBusy] = useState(false)
@@ -38,6 +39,19 @@ export default function ExerciseForm({ groups, exercise, defaultGroupId, onChang
     }
   }
 
+  async function remove() {
+    if (!window.confirm(`Delete "${exercise.name}"? This cannot be undone.`)) return
+    setBusy(true)
+    try {
+      await deleteExercise(exercise.id)
+      await onChanged()
+      onDone()
+    } catch (err) {
+      setError(err.message)
+      setBusy(false)
+    }
+  }
+
   return (
     <form className="inline-form" onSubmit={submit}>
       <label className="field">
@@ -65,9 +79,14 @@ export default function ExerciseForm({ groups, exercise, defaultGroupId, onChang
           <button type="button" className="link" onClick={onDone}>
             Cancel
           </button>
-          <button type="button" className="link danger" onClick={archive} disabled={busy}>
+          <button type="button" className="link" onClick={archive} disabled={busy}>
             Archive
           </button>
+          {canDelete && (
+            <button type="button" className="link danger" onClick={remove} disabled={busy}>
+              Delete
+            </button>
+          )}
         </div>
       )}
 

@@ -117,6 +117,7 @@ export default function ExerciseDetail({ exercise, groups, groupName, onChanged,
         <ExerciseForm
           groups={groups}
           exercise={exercise}
+          canDelete={records !== null && !hasSets}
           onChanged={onChanged}
           onDone={() => setEditingExercise(false)}
           onError={setError}
