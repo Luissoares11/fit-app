@@ -19,21 +19,28 @@ function scale(min, max) {
   return { lo, hi, ticks }
 }
 
-// points: [{ date: 'YYYY-MM-DD', weight_kg }] sorted oldest first
+// Short label for the x-axis under each point: "13/10", or "start" for the start weight
+const shortLabel = (p) => {
+  if (!p.date) return 'start'
+  const d = toDay(p.date)
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+// points: [{ date: 'YYYY-MM-DD', weight_kg }] sorted oldest first.
+// Points are evenly spaced, one per logged weight, so the x-axis is the order of logs, not elapsed time.
+// A point with date null is the start weight and reads "start".
 export default function WeightChart({ points }) {
   const [active, setActive] = useState(null) // index of the hovered or focused point
   const kgs = points.map((p) => p.weight_kg)
   const { lo, hi, ticks } = scale(Math.min(...kgs), Math.max(...kgs))
 
-  const t0 = toDay(points[0].date).getTime()
-  const span = toDay(points.at(-1).date).getTime() - t0
+  const label = (p) => (p.date ? formatDay(toDay(p.date)) : 'start')
   const last = points.length - 1
 
-  const x = (p) =>
-    span === 0 ? PAD.left + PLOT_W / 2 : PAD.left + ((toDay(p.date).getTime() - t0) / span) * PLOT_W
+  const x = (i) => (last === 0 ? PAD.left + PLOT_W / 2 : PAD.left + (i / last) * PLOT_W)
   const y = (kg) => PAD.top + (1 - (kg - lo) / (hi - lo)) * PLOT_H
 
-  const pts = points.map((p) => ({ cx: x(p), cy: y(p.weight_kg) }))
+  const pts = points.map((p, i) => ({ cx: x(i), cy: y(p.weight_kg) }))
   const line = pts.map(({ cx, cy }, i) => `${i ? 'L' : 'M'}${cx} ${cy}`).join(' ')
   const base = PAD.top + PLOT_H
   const area = `${line} L${pts[last].cx} ${base} L${pts[0].cx} ${base} Z`
@@ -67,10 +74,12 @@ export default function WeightChart({ points }) {
       <svg
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`Weight from ${formatDay(toDay(points[0].date))} to ${formatDay(toDay(points[last].date))}. Use the arrow keys to read values.`}
+        aria-label={`Weight from ${label(points[0])} to ${label(points[last])}. Use the arrow keys to read values.`}
         tabIndex={0}
+        onPointerDown={onPointerMove}
         onPointerMove={onPointerMove}
-        onPointerLeave={() => setActive(null)}
+        // Touch has no hover: keep the tapped point's tooltip until the next tap
+        onPointerLeave={(e) => e.pointerType === 'mouse' && setActive(null)}
         onFocus={() => setActive(last)}
         onBlur={() => setActive(null)}
         onKeyDown={onKeyDown}
@@ -84,21 +93,27 @@ export default function WeightChart({ points }) {
           </g>
         ))}
 
-        <text className="axis" x={PAD.left} y={H - 6}>
-          {formatDay(toDay(points[0].date))}
-        </text>
-        {last > 0 && (
-          <text className="axis" x={W - PAD.right} y={H - 6} textAnchor="end">
-            {formatDay(toDay(points[last].date))}
+        {points.map((p, i) => (
+          <text
+            key={i}
+            className="axis"
+            x={pts[i].cx}
+            y={H - 6}
+            // Edge labels hug their edge so they don't run into the y-axis or the chart's right side
+            textAnchor={i === 0 && last > 0 ? 'start' : i === last && last > 0 ? 'end' : 'middle'}
+          >
+            {shortLabel(p)}
           </text>
-        )}
+        ))}
 
         <path className="area" d={area} />
         <path className="series" d={line} />
 
+        {pts.map((p, i) => (
+          <circle key={i} className="point" cx={p.cx} cy={p.cy} r={3.5} />
+        ))}
         {hover && <line className="crosshair" x1={hover.cx} x2={hover.cx} y1={PAD.top} y2={base} />}
         {hover && <circle className="dot" cx={hover.cx} cy={hover.cy} r={5} />}
-        {!hover && <circle className="dot" cx={pts[last].cx} cy={pts[last].cy} r={4} />}
         {!hover && (
           <text className="value" x={pts[last].cx} y={pts[last].cy - 10} textAnchor="end">
             {points[last].weight_kg}
@@ -108,7 +123,7 @@ export default function WeightChart({ points }) {
 
       {hover && (
         <div className="tooltip" style={{ left: `${Math.min(82, Math.max(18, (hover.cx / W) * 100))}%` }}>
-          <strong>{hoverPoint.weight_kg} kg</strong> · {formatDay(toDay(hoverPoint.date))}
+          <strong>{hoverPoint.weight_kg} kg</strong> · {label(hoverPoint)}
         </div>
       )}
     </div>

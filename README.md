@@ -11,7 +11,7 @@ training plans, an exercise library and personal records (PRs).
 - **Gym**
   - **Today:** today's planned muscle groups and exercises, each with its PR. Tap an exercise to log sets.
   - **Plan:** a weekly schedule (Monday to Sunday). Each day is rest or training, with one or more muscle groups.
-  - **Exercises:** the library grouped by muscle group. Add, rename, move, archive and delete exercises. Add, rename and delete muscle groups. An exercise with logged sets can only be archived, so its history is kept.
+  - **Exercises:** the library grouped by muscle group. Add, rename, move and delete exercises. Add, rename and delete muscle groups. Deleting an exercise also deletes its logged sets, and the app warns you first.
   - **Exercise detail:** log sets (date, weight, reps), see records (heaviest, estimated 1RM, best weight per rep count, most reps for bodyweight) and the full history. Edit and delete sets.
 - **Progress:** current and goal BMI, starting and latest photos, and the full history of weights and photos. Sessions can be deleted.
 - **Profile:** name, age, height, start and goal weight, and the check-in day and repeat (every 1 to 4 weeks).

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS profile (
     goal_weight_kg REAL,
     height_cm REAL,
     age INTEGER,
+    start_date TEXT,
     checkin_weekday INTEGER NOT NULL DEFAULT 0,
     checkin_every_weeks INTEGER NOT NULL DEFAULT 1
 );
@@ -34,7 +35,6 @@ CREATE TABLE IF NOT EXISTS exercises (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     muscle_group_id INTEGER NOT NULL REFERENCES muscle_groups(id),
-    archived INTEGER NOT NULL DEFAULT 0,
     UNIQUE (name, muscle_group_id)
 );
 CREATE TABLE IF NOT EXISTS plan_days (
@@ -122,6 +122,7 @@ def init_db() -> None:
     with sqlite3.connect(config.DB_PATH) as conn:
         conn.executescript(SCHEMA)
         _migrate_profile(conn)
+        _drop_exercise_archive(conn)
         _rename_legacy(conn)
         _seed_gym(conn)
 
@@ -131,10 +132,19 @@ def _migrate_profile(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(profile)")}
     if "checkin_every_days" in cols:
         conn.execute("ALTER TABLE profile DROP COLUMN checkin_every_days")
+    if "start_date" not in cols:
+        conn.execute("ALTER TABLE profile ADD COLUMN start_date TEXT")
     if "checkin_weekday" not in cols:
         conn.execute("ALTER TABLE profile ADD COLUMN checkin_weekday INTEGER NOT NULL DEFAULT 0")
     if "checkin_every_weeks" not in cols:
         conn.execute("ALTER TABLE profile ADD COLUMN checkin_every_weeks INTEGER NOT NULL DEFAULT 1")
+
+
+def _drop_exercise_archive(conn: sqlite3.Connection) -> None:
+    # Archiving was removed; older databases still have the column
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(exercises)")}
+    if "archived" in cols:
+        conn.execute("ALTER TABLE exercises DROP COLUMN archived")
 
 
 def _rename_legacy(conn: sqlite3.Connection) -> None:

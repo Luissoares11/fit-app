@@ -26,8 +26,7 @@ def _exercise_sets(conn: sqlite3.Connection, exercise_id: int) -> list[dict]:
 
 @router.post("/exercises/{exercise_id}/sets", status_code=201)
 def log_sets(exercise_id: int, body: SetsLogIn, conn: sqlite3.Connection = Depends(get_db)):
-    row = conn.execute("SELECT archived FROM exercises WHERE id = ?", (exercise_id,)).fetchone()
-    if row is None or row["archived"]:
+    if conn.execute("SELECT 1 FROM exercises WHERE id = ?", (exercise_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Exercise not found")
 
     day = body.date.isoformat()
@@ -65,7 +64,6 @@ def log_sets(exercise_id: int, body: SetsLogIn, conn: sqlite3.Connection = Depen
 
 @router.get("/exercises/{exercise_id}/records")
 def exercise_records(exercise_id: int, conn: sqlite3.Connection = Depends(get_db)):
-    # Archived exercises keep their records and history
     if conn.execute("SELECT 1 FROM exercises WHERE id = ?", (exercise_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Exercise not found")
 

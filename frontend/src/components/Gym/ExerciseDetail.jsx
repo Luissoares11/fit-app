@@ -4,8 +4,9 @@ import { formatDay, toDay, todayIso } from '../../dates'
 import DateInput from '../DateInput'
 import { kg, parseKg, parseReps, prText } from './format'
 import ExerciseForm from './ExerciseForm'
+import Modal from '../Modal'
 
-export default function ExerciseDetail({ exercise, groups, groupName, onChanged, onBack, backLabel = 'Exercises' }) {
+export default function ExerciseDetail({ exercise, groups, groupName, onChanged, onClose }) {
   const [records, setRecords] = useState(null)
   const [editingExercise, setEditingExercise] = useState(false)
   const [date, setDate] = useState(todayIso())
@@ -100,28 +101,27 @@ export default function ExerciseDetail({ exercise, groups, groupName, onChanged,
   const hasSets = records && records.history.length > 0
 
   return (
-    <div className="detail">
-      <header className="detail-head">
-        <button className="link" onClick={onBack}>
-          ← {backLabel}
+    <Modal
+      // Open once the records are in, so the dialog doesn't animate at a small height and then grow
+      open={records !== null || error !== ''}
+      title={exercise.name}
+      subtitle={groupName}
+      onClose={onClose}
+      actions={
+        <button className="link" onClick={() => setEditingExercise(true)}>
+          Edit
         </button>
-        <button className="link" onClick={() => setEditingExercise((v) => !v)}>
-          {editingExercise ? 'Close' : 'Edit'}
-        </button>
-      </header>
-
-      <h2 className="detail-title">{exercise.name}</h2>
-      <p className="muted">{groupName}</p>
-
+      }
+    >
       {editingExercise && (
-        <ExerciseForm
-          groups={groups}
-          exercise={exercise}
-          canDelete={records !== null && !hasSets}
-          onChanged={onChanged}
-          onDone={() => setEditingExercise(false)}
-          onError={setError}
-        />
+        <Modal open title="Edit exercise" onClose={() => setEditingExercise(false)}>
+          <ExerciseForm
+            groups={groups}
+            exercise={exercise}
+            onChanged={onChanged}
+            onDone={() => setEditingExercise(false)}
+          />
+        </Modal>
       )}
 
       <section className="card">
@@ -239,60 +239,67 @@ export default function ExerciseDetail({ exercise, groups, groupName, onChanged,
         )}
       </section>
 
-      <section>
+      {editingSet && (
+        <Modal open title="Edit set" onClose={() => setEditingSet(null)}>
+          <form className="set-edit-form" onSubmit={saveSetEdit}>
+            <div className="row-2">
+              <label className="field">
+                <span>Weight (kg)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={editingSet.weight}
+                  onChange={(e) => setEditingSet({ ...editingSet, weight: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>Reps</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={editingSet.reps}
+                  onChange={(e) => setEditingSet({ ...editingSet, reps: e.target.value })}
+                />
+              </label>
+            </div>
+            <button className="primary">Save set</button>
+            {error && <p className="status error">{error}</p>}
+          </form>
+        </Modal>
+      )}
+
+      {error && <p className="status error">{error}</p>}
+
+      <section className="card">
         <h2 className="section-title">History</h2>
         {!hasSets && <p className="muted">Nothing logged yet.</p>}
         {records?.history.map((day) => (
           <div key={day.date} className="history-day">
             <h3 className="day-title">{formatDay(toDay(day.date))}</h3>
             <ul className="set-list">
-              {day.sets.map((s) =>
-                editingSet?.id === s.id ? (
-                  <li key={s.id}>
-                    <form className="set-edit" onSubmit={saveSetEdit}>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        aria-label="Weight (kg)"
-                        value={editingSet.weight}
-                        onChange={(e) => setEditingSet({ ...editingSet, weight: e.target.value })}
-                      />
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        aria-label="Reps"
-                        value={editingSet.reps}
-                        onChange={(e) => setEditingSet({ ...editingSet, reps: e.target.value })}
-                      />
-                      <button className="link">Save</button>
-                      <button type="button" className="link" onClick={() => setEditingSet(null)}>
-                        Cancel
-                      </button>
-                    </form>
-                  </li>
-                ) : (
-                  <li key={s.id}>
-                    <span>
-                      {kg(s.weight_kg)} kg × {s.reps}
-                    </span>
-                    <span className="set-actions">
-                      <button
-                        className="link"
-                        onClick={() => setEditingSet({ id: s.id, weight: kg(s.weight_kg), reps: String(s.reps) })}
-                      >
-                        Edit
-                      </button>
-                      <button className="link danger" onClick={() => removeSet(s)}>
-                        Delete
-                      </button>
-                    </span>
-                  </li>
-                ),
-              )}
+              {day.sets.map((s) => (
+                <li key={s.id}>
+                  <span>
+                    {kg(s.weight_kg)} kg × {s.reps}
+                  </span>
+                  <span className="set-actions">
+                    <button
+                      className="link"
+                      onClick={() => setEditingSet({ id: s.id, weight: kg(s.weight_kg), reps: String(s.reps) })}
+                    >
+                      Edit
+                    </button>
+                    <button className="link danger" onClick={() => removeSet(s)}>
+                      Delete
+                    </button>
+                  </span>
+                </li>
+              ))}
             </ul>
           </div>
         ))}
       </section>
-    </div>
+    </Modal>
   )
 }
+

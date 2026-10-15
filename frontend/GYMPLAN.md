@@ -35,7 +35,7 @@ This document adds gym training: a weekly plan, an exercise library, per-exercis
 5. "Days per week" is not a stored field. It is the count of training days in the plan.
 6. The plan is a suggestion, never a lock. Today always allows switching to another day's workout or training on a rest day.
 7. Each exercise belongs to exactly one muscle group (its main one).
-8. Exercises are archived, never hard-deleted, because logged sets reference them.
+8. Deleting an exercise also deletes its logged sets. A workout left with no sets is deleted too. The app warns the user first, with the number of sets that will go.
 9. **PRs are derived from logged sets, never entered separately.** There is no PR table. Every set is stored once, and records are computed from the sets, so they can never disagree with the history.
 10. Sets can be logged in two ways, and both write to the same tables:
     - **Quick log** from the exercise detail view (tap an exercise in the Exercises section). Saved immediately. Built in phase 2.
@@ -56,7 +56,6 @@ CREATE TABLE IF NOT EXISTS exercises (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     muscle_group_id INTEGER NOT NULL REFERENCES muscle_groups(id),
-    archived INTEGER NOT NULL DEFAULT 0,
     UNIQUE (name, muscle_group_id)
 );
 
@@ -99,7 +98,7 @@ Seed in `init_db`, idempotently (running it twice must not duplicate anything).
 
 Muscle groups: `chest`, `back`, `shoulders`, `biceps`, `triceps`, `legs`, `glutes`, `abs`, `forearms`. The defaults are seeded once per database (tracked in `app_meta`), so renamed or deleted groups stay that way. Databases seeded earlier with Portuguese names are renamed on startup (`LEGACY_NAMES` in `db.py`).
 
-Starter exercises, inserted **only if the `exercises` table is empty** (so exercises the user archives do not come back on restart):
+Starter exercises, inserted **only if the `exercises` table is empty** (so exercises the user deletes do not come back on restart):
 
 | Group | Exercises |
 |---|---|
@@ -152,12 +151,11 @@ All routes under `/api`, all authenticated.
 | GET | `/muscle-groups` | `[{id, name}]` |
 | POST | `/muscle-groups` | `{name}`. Trim and lowercase the name. 201 with `{id, name}`. 409 if the name already exists. 422 for an empty name or one longer than 40 characters |
 | PATCH | `/muscle-groups/{id}` | `{name}`, same rules as POST. 200 with `{id, name}`. 404 if missing, 409 on duplicate. Exercises and plan days follow the group by id |
-| DELETE | `/muscle-groups/{id}` | 204. 409 if any exercise (archived ones too) or any plan day uses the group. 404 if missing |
-| GET | `/exercises` | Non-archived only. Optional `?muscle_group_id=`. Each item: `{id, name, muscle_group_id}` |
+| DELETE | `/muscle-groups/{id}` | 204. 409 if any exercise or any plan day uses the group. 404 if missing |
+| GET | `/exercises` | Optional `?muscle_group_id=`. Each item: `{id, name, muscle_group_id}` |
 | POST | `/exercises` | `{name, muscle_group_id}`. Trim the name. 409 if the same name already exists in that group. 422 for an unknown group or empty name |
 | PATCH | `/exercises/{id}` | Optional `name` and `muscle_group_id`. 404 if missing, 409 on duplicate |
-| POST | `/exercises/{id}/archive` | Archives (sets `archived = 1`), returns 204. Idempotent. 404 if missing |
-| DELETE | `/exercises/{id}` | Permanently deletes the exercise, returns 204. 409 if it has logged sets (archive it instead). 404 if missing |
+| DELETE | `/exercises/{id}` | Deletes the exercise and its logged sets (and any workout left empty), returns 204. 404 if missing |
 | GET | `/plan` | `{days: [{weekday, muscle_group_ids: [..]}]}`, training days only, sorted by weekday |
 | PUT | `/plan` | Replaces the whole plan atomically in one transaction. Same shape as GET |
 
@@ -167,7 +165,7 @@ All routes under `/api`, all authenticated.
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/exercises/{id}/sets` | Body: `{date, sets: [{weight_kg, reps}]}`. Finds the most recent workout on `date` or creates one, then inserts the sets with `set_order` continuing after the exercise's existing sets in that workout. Returns 201 with `{workout_id, set_ids, new_prs}`. 404 if the exercise is missing or archived |
+| POST | `/exercises/{id}/sets` | Body: `{date, sets: [{weight_kg, reps}]}`. Finds the most recent workout on `date` or creates one, then inserts the sets with `set_order` continuing after the exercise's existing sets in that workout. Returns 201 with `{workout_id, set_ids, new_prs}`. 404 if the exercise is missing |
 | GET | `/exercises/{id}/records` | See shape below |
 | PATCH | `/sets/{id}` | Optional `weight_kg` and `reps`, same validation as creation. 404 if missing. Returns the updated set |
 | DELETE | `/sets/{id}` | 204. If the workout is left with no sets, delete the workout too |
@@ -201,7 +199,7 @@ Validation for sets: `weight_kg` between 0 and 1000 (0 allowed for bodyweight ex
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/workouts` | `{date, note?, sets: [{exercise_id, weight_kg, reps}]}`. Creates the workout and all sets in one transaction. `set_order` is assigned from the array order, per exercise. Returns 201 with `{id, new_prs}` where `new_prs` is grouped per exercise id. Same set validation as phase 2; every `exercise_id` must exist (archived is allowed) |
+| POST | `/workouts` | `{date, note?, sets: [{exercise_id, weight_kg, reps}]}`. Creates the workout and all sets in one transaction. `set_order` is assigned from the array order, per exercise. Returns 201 with `{id, new_prs}` where `new_prs` is grouped per exercise id. Same set validation as phase 2; every `exercise_id` must exist |
 | GET | `/exercises/last-sets?exercise_ids=1,2,3` | For each exercise, the sets from its most recent workout: `{"1": {"date": "...", "sets": [{"weight_kg": 60, "reps": 8}]}}`. Exercises never logged are omitted |
 
 **Route order matters in FastAPI:** declare `/exercises/last-sets` before any `/exercises/{id}` route, otherwise `last-sets` is parsed as an id and returns 422.
@@ -237,13 +235,13 @@ Validation for sets: `weight_kg` between 0 and 1000 (0 allowed for bodyweight ex
 - Exercises grouped by muscle group (collapsible sections or filter chips, whichever fits the existing style).
 - **Add exercise** with a name field and a group selector, defaulting to the group the user is currently looking at.
 - Empty groups show a short hint instead of a blank area.
-- **Tapping an exercise opens its detail view** (phase 2, built). The Edit button in that view handles rename, move to another group, and archive with confirmation.
+- **Tapping an exercise opens its detail view** (phase 2, built). The Edit button in that view handles rename, move to another group, and delete.
 
 ### Exercise detail view (phase 2)
 
 Opens when tapping an exercise. Full-screen on mobile with a back button.
 
-- **Header:** exercise name and muscle group. An **Edit** button opens rename, move to another group, and archive (with confirmation). These moved here from the list.
+- **Header:** exercise name and muscle group. An **Edit** button opens rename, move to another group, and delete. These moved here from the list.
 - **Log form** at the top:
   - Date, defaulting to today (local) and changeable to a past date, never a future date.
   - Weight (kg) and reps. Weight 0 is allowed, with a short hint such as "0 for bodyweight".
@@ -299,7 +297,7 @@ Frontend: Gym tab with Plan and Exercises sections (Today shows a short "coming 
 
 Done when:
 - Seeded groups and exercises appear on a fresh database, and restarting the server does not duplicate them.
-- The user can add, rename, move and archive exercises.
+- The user can add, rename, move and delete exercises.
 - The user can build a plan (for example Mon chest + triceps, Tue back + biceps, Wed legs, Thu shoulders, Fri chest + back), save it, reload the page, and see it again.
 - All tests pass and no existing test broke.
 
@@ -347,17 +345,16 @@ Follow the existing test style (temporary `DATA_DIR`, `TestClient`, login via `/
 Phase 1:
 - Every new route returns 401 without credentials.
 - Seeding is idempotent (calling `init_db` twice leaves the same row counts).
-- Exercise create, list (with and without the group filter), rename, move group, archive hides it from the list.
+- Exercise create, list (with and without the group filter), rename, move group, delete (also removes its logged sets).
 - Duplicate exercise name in the same group returns 409, the same name in a different group is allowed.
 - Unknown muscle group returns 422.
 - `PUT /plan`: valid plan round-trips through `GET /plan`; duplicate weekday, weekday out of range, empty day, unknown group, and duplicate group in a day all return 422; a failed PUT leaves the previous plan untouched; a second PUT fully replaces the first.
 
 Phase 2:
 - `records.py` unit tests (no HTTP): Epley calculation, e1RM ignored above 12 reps, heaviest tie-breaking, best weight per rep count, `most_reps` only from weight 0 sets, ties are not PRs, the first set ever reports no PRs, the first time a rep count appears is not a `rep_best` PR, several sets in one request are evaluated in order.
-- `POST /exercises/{id}/sets`: creates a workout when none exists for the date, appends to the existing workout on the same date, `set_order` continues correctly, past date accepted, future date rejected (422), weight 0 accepted, negative weight and reps 0 rejected, archived or missing exercise returns 404, an invalid set in a batch saves nothing.
+- `POST /exercises/{id}/sets`: creates a workout when none exists for the date, appends to the existing workout on the same date, `set_order` continues correctly, past date accepted, future date rejected (422), weight 0 accepted, negative weight and reps 0 rejected, missing exercise returns 404, an invalid set in a batch saves nothing.
 - `GET /exercises/{id}/records`: empty state returns nulls and empty lists, populated state matches the definitions, history is newest first.
 - `PATCH /sets/{id}` and `DELETE /sets/{id}`: edit validates like creation, deleting the last set removes the workout, deleting one of several keeps the workout.
-- Archived exercises still return their records and history.
 - Every new route returns 401 without credentials.
 
 Phase 3:
@@ -375,7 +372,6 @@ Rest timer, drag-to-reorder exercises, supersets, plate calculator, templates be
 - Exercise order inside a day is group order, then creation order.
 - Estimated 1RM uses the Epley formula and is only calculated up to 12 reps.
 - **Decided: backdated sets are compared against all logged sets.** A set logged for an earlier date is compared against everything already stored, so it can be a PR. This is how PRs from before the app are entered (decision 11).
-- An archived exercise still blocks re-adding the same name in the same group (409). Restoring archived exercises is not built.
 - **Decided: the quick log saves one set per press.** The batch endpoint accepts several sets for later use.
 - Editing or deleting a set does not show PR banners.
 - **Decided: ties are not PRs.**

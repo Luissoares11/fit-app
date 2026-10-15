@@ -63,7 +63,7 @@ export default function App() {
           </button>
         </header>
 
-        <current.Page />
+        <current.Page onOpenGym={() => setTab('gym')} onOpenProgress={() => setTab('progress')} />
       </main>
 
       <div

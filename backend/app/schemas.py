@@ -24,6 +24,8 @@ class ProfileIn(BaseModel):
     goal_weight_kg: float | None = Field(None, gt=20, lt=400)
     height_cm: float | None = Field(None, gt=50, lt=260)
     age: int | None = Field(None, ge=5, lt=120)
+    # The day the start weight was logged; the dashboard counts weeks from it
+    start_date: date_type | None = None
     # 0 = Monday, same as Python's date.weekday()
     checkin_weekday: int = Field(0, ge=0, le=6)
     checkin_every_weeks: int = Field(1, ge=1, le=4)

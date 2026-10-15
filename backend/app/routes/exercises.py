@@ -50,7 +50,7 @@ def update_muscle_group(group_id: int, body: MuscleGroupIn, conn: sqlite3.Connec
 def delete_muscle_group(group_id: int, conn: sqlite3.Connection = Depends(get_db)):
     if not _group_exists(conn, group_id):
         raise HTTPException(status_code=404, detail="Muscle group not found")
-    # Exercises (archived ones too) and plan days point at the group, so refuse rather than orphan them
+    # Exercises and plan days point at the group, so refuse rather than orphan them
     if conn.execute("SELECT 1 FROM exercises WHERE muscle_group_id = ? LIMIT 1", (group_id,)).fetchone():
         raise HTTPException(
             status_code=409, detail="This muscle group still has exercises. Move or delete them first"
@@ -62,10 +62,10 @@ def delete_muscle_group(group_id: int, conn: sqlite3.Connection = Depends(get_db
 
 @router.get("/exercises")
 def list_exercises(muscle_group_id: int | None = None, conn: sqlite3.Connection = Depends(get_db)):
-    sql = "SELECT id, name, muscle_group_id FROM exercises WHERE archived = 0"
+    sql = "SELECT id, name, muscle_group_id FROM exercises"
     params: tuple = ()
     if muscle_group_id is not None:
-        sql += " AND muscle_group_id = ?"
+        sql += " WHERE muscle_group_id = ?"
         params = (muscle_group_id,)
     rows = conn.execute(sql + " ORDER BY id", params).fetchall()
     return [dict(r) for r in rows]
@@ -141,19 +141,19 @@ def update_exercise(exercise_id: int, body: ExercisePatch, conn: sqlite3.Connect
     return _exercise(conn, exercise_id)
 
 
-@router.post("/exercises/{exercise_id}/archive", status_code=204)
-def archive_exercise(exercise_id: int, conn: sqlite3.Connection = Depends(get_db)):
-    # Archived, not deleted: keeps the history of an exercise that has logged sets
-    cur = conn.execute("UPDATE exercises SET archived = 1 WHERE id = ?", (exercise_id,))
-    if cur.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Exercise not found")
-
-
 @router.delete("/exercises/{exercise_id}", status_code=204)
 def delete_exercise(exercise_id: int, conn: sqlite3.Connection = Depends(get_db)):
     if conn.execute("SELECT 1 FROM exercises WHERE id = ?", (exercise_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Exercise not found")
-    # Logged sets would be lost with it, so only exercises without history can be deleted
-    if conn.execute("SELECT 1 FROM workout_sets WHERE exercise_id = ? LIMIT 1", (exercise_id,)).fetchone():
-        raise HTTPException(status_code=409, detail="This exercise has logged sets. Archive it instead")
-    conn.execute("DELETE FROM exercises WHERE id = ?", (exercise_id,))
+    # The exercise's logged sets go with it (the app warns before this is called).
+    # A workout left with no sets is removed too, as delete_set does.
+    with conn:
+        workout_ids = [
+            r[0] for r in conn.execute("SELECT DISTINCT workout_id FROM workout_sets WHERE exercise_id = ?", (exercise_id,))
+        ]
+        conn.execute("DELETE FROM workout_sets WHERE exercise_id = ?", (exercise_id,))
+        for workout_id in workout_ids:
+            left = conn.execute("SELECT COUNT(*) FROM workout_sets WHERE workout_id = ?", (workout_id,)).fetchone()[0]
+            if left == 0:
+                conn.execute("DELETE FROM workouts WHERE id = ?", (workout_id,))
+        conn.execute("DELETE FROM exercises WHERE id = ?", (exercise_id,))

@@ -14,6 +14,7 @@ FIELDS = (
     "goal_weight_kg",
     "height_cm",
     "age",
+    "start_date",
     "checkin_weekday",
     "checkin_every_weeks",
 )
@@ -35,6 +36,7 @@ def get_profile(conn: sqlite3.Connection = Depends(get_db)):
 @router.put("/profile")
 def save_profile(body: ProfileIn, conn: sqlite3.Connection = Depends(get_db)):
     data = body.model_dump()
+    data["start_date"] = data["start_date"].isoformat() if data["start_date"] else None
     conn.execute(
         f"""
         INSERT INTO profile (id, {', '.join(FIELDS)}) VALUES (1, {', '.join(f':{f}' for f in FIELDS)})

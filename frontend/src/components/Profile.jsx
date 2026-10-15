@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getProfile, saveProfile } from '../api'
-import { WEEKDAY_NAMES } from '../dates'
+import { WEEKDAY_NAMES, todayIso } from '../dates'
+import DateInput from './DateInput'
 
 const WEEKDAY_OPTIONS = WEEKDAY_NAMES.map((name, i) => ({ value: i, label: name }))
 
@@ -16,6 +17,7 @@ const FIELDS = [
   { key: 'age', label: 'Age', mode: 'numeric', integer: true },
   { key: 'height_cm', label: 'Height (cm)', mode: 'decimal' },
   { key: 'start_weight_kg', label: 'Start weight (kg)', mode: 'decimal' },
+  { key: 'start_date', label: 'Start weight date', mode: 'date' },
   { key: 'goal_weight_kg', label: 'Goal weight (kg)', mode: 'decimal' },
   { key: 'checkin_weekday', label: 'Check-in day', integer: true, options: WEEKDAY_OPTIONS },
   { key: 'checkin_every_weeks', label: 'Check-in repeats', integer: true, options: REPEAT_OPTIONS },
@@ -53,8 +55,11 @@ export default function Profile() {
     try {
       const body = {}
       for (const { key, integer } of FIELDS) {
+        if (key === 'start_date') continue
         body[key] = key === 'name' ? form.name.trim() || null : parse(form[key], integer)
       }
+      // Start date: what was typed, else today when a start weight is saved without one
+      body.start_date = form.start_date || (body.start_weight_kg ? todayIso() : null)
       if (Object.values(body).some((v) => Number.isNaN(v))) {
         throw new Error('Check the numbers')
       }
@@ -71,7 +76,15 @@ export default function Profile() {
       {FIELDS.map(({ key, label, mode, options }) => (
         <label className="field" key={key}>
           <span>{label}</span>
-          {options ? (
+          {key === 'start_date' ? (
+            <>
+              <DateInput
+                defaultValue={form.start_date || null}
+                onChange={(iso) => setForm((f) => ({ ...f, start_date: iso ?? '' }))}
+              />
+              <span className="muted small">Counts your weeks. Left empty, it becomes today when you save a start weight.</span>
+            </>
+          ) : options ? (
             <select value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}>
               {options.map((o) => (
                 <option key={o.value} value={o.value}>

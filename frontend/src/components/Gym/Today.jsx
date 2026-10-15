@@ -24,23 +24,9 @@ export default function Today({ groups, exercises, plan, onChanged }) {
     Promise.all(ids.map((id) => getRecords(id).then((r) => [id, r])))
       .then((pairs) => setRecords(Object.fromEntries(pairs)))
       .catch((err) => setError(err.message))
-  }, [idsKey])
+  }, [idsKey, openId]) // openId: refetch after the dialog closes so the PRs are current
 
   const opened = openId === null ? null : exercises.find((e) => e.id === openId) ?? null
-  if (opened) {
-    const group = groups.find((g) => g.id === opened.muscle_group_id)
-    return (
-      <ExerciseDetail
-        key={opened.id}
-        exercise={opened}
-        groups={groups}
-        groupName={group?.name}
-        onChanged={onChanged}
-        onBack={() => setOpenId(null)}
-        backLabel="Today"
-      />
-    )
-  }
 
   if (error) return <p className="status error">{error}</p>
 
@@ -59,42 +45,58 @@ export default function Today({ groups, exercises, plan, onChanged }) {
       {planned.map((g) => {
         const items = exercises.filter((e) => e.muscle_group_id === g.id)
         return (
-          <section key={g.id} className="group">
-            <h3 className="today-group">{g.name}</h3>
-            {items.length === 0 && <p className="muted hint">No exercises in this group yet.</p>}
-            {items.map((e) => (
-              <button key={e.id} className="today-exercise" onClick={() => setOpenId(e.id)}>
-                <span className="today-name">{e.name}</span>
-                <PrLine rec={records?.[e.id]} />
-              </button>
-            ))}
+          <section key={g.id} className="card today-section">
+            <h3 className="today-section-title">{g.name}</h3>
+            {items.length === 0 && <p className="muted small">No exercises in this group yet.</p>}
+            <ul className="today-list">
+              {items.map((e) => (
+                <li key={e.id}>
+                  <button className="today-row" onClick={() => setOpenId(e.id)}>
+                    <span className="today-name">{e.name}</span>
+                    <PrLine rec={records?.[e.id]} />
+                  </button>
+                </li>
+              ))}
+            </ul>
           </section>
         )
       })}
+
+      {opened && (
+        <ExerciseDetail
+          key={opened.id}
+          exercise={opened}
+          groups={groups}
+          groupName={groups.find((g) => g.id === opened.muscle_group_id)?.name}
+          onChanged={onChanged}
+          onClose={() => setOpenId(null)}
+        />
+      )}
     </>
   )
 }
 
+// The PR, right-aligned on the exercise row: the weight and reps, then the day it was set
 function PrLine({ rec }) {
-  if (!rec) return <p className="muted small">…</p>
+  if (!rec) return <span className="today-pr muted small">…</span>
 
   if (rec.heaviest) {
     return (
-      <p className="small">
-        PR <strong>{kg(rec.heaviest.weight_kg)} kg × {rec.heaviest.reps}</strong>{' '}
-        <span className="muted">· {formatDay(toDay(rec.heaviest.date))}</span>
-        {rec.best_e1rm && <span className="muted"> · est. 1RM {kg(rec.best_e1rm.value)} kg</span>}
-      </p>
+      <span className="today-pr">
+        <strong>{kg(rec.heaviest.weight_kg)} kg × {rec.heaviest.reps}</strong>
+        <span className="muted small">{formatDay(toDay(rec.heaviest.date))}</span>
+      </span>
     )
   }
 
   if (rec.most_reps !== null) {
     return (
-      <p className="small">
-        PR <strong>{rec.most_reps} reps</strong> <span className="muted">(bodyweight)</span>
-      </p>
+      <span className="today-pr">
+        <strong>{rec.most_reps} reps</strong>
+        <span className="muted small">bodyweight</span>
+      </span>
     )
   }
 
-  return <p className="muted small">No PR yet</p>
+  return <span className="today-pr muted small">No PR yet</span>
 }

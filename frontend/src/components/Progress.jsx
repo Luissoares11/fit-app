@@ -60,7 +60,8 @@ export default function Progress() {
   const withPhotos = sessions.filter((s) => s.angles.length > 0)
   const startPhotos = withPhotos.at(-1)
   const latestPhotos = withPhotos[0]
-  const current = sessions[0]
+  // Latest check-in, or the start weight from Profile when nothing is logged yet
+  const currentWeight = sessions[0]?.weight_kg ?? profile.start_weight_kg
   const height = profile.height_cm
 
   return (
@@ -68,7 +69,7 @@ export default function Progress() {
       <section className="card stat-grid">
         <Stat
           label="Current BMI"
-          value={current && height ? bmi(current.weight_kg, height) : '—'}
+          value={currentWeight && height ? bmi(currentWeight, height) : '—'}
         />
         <Stat
           label="Goal BMI"

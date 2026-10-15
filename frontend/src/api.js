@@ -39,7 +39,6 @@ async function request(path, options = {}) {
   export const listExercises = () => request('/exercises')
   export const createExercise = (data) => request('/exercises', json('POST', data))
   export const updateExercise = (id, data) => request(`/exercises/${id}`, json('PATCH', data))
-  export const archiveExercise = (id) => request(`/exercises/${id}/archive`, { method: 'POST' })
   export const deleteExercise = (id) => request(`/exercises/${id}`, { method: 'DELETE' })
   export const getPlan = () => request('/plan')
   export const savePlan = (data) => request('/plan', json('PUT', data))
