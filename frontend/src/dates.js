@@ -52,3 +52,21 @@ export const toDisplayDate = (iso) => {
   const [y, m, d] = iso.split('-')
   return `${d}/${m}/${y}`
 }
+
+// Time left, in weeks, as months, weeks and days (a month is 30 days). Drops units that do not apply:
+// under a month shows weeks and days, under a week shows days only.
+export function formatTimeLeft(weeks) {
+  const totalDays = Math.max(0, Math.round(weeks * 7))
+  const plural = (n, unit) => `${n} ${unit}${n === 1 ? '' : 's'}`
+  if (totalDays < 7) return plural(totalDays, 'day')
+
+  const months = Math.floor(totalDays / 30)
+  const rest = totalDays - months * 30
+  const parts = []
+  if (months > 0) parts.push(plural(months, 'month'))
+  const weeksPart = Math.floor(rest / 7)
+  const days = rest % 7
+  if (weeksPart > 0) parts.push(plural(weeksPart, 'week'))
+  if (days > 0) parts.push(plural(days, 'day'))
+  return parts.join(', ')
+}

@@ -217,10 +217,10 @@ Validation for sets: `weight_kg` between 0 and 1000 (0 allowed for bodyweight ex
 ### Structure
 
 - New **Gym** page in the drawer (`App.jsx`). Inside it, a segmented control with **Today / Plan / Exercises**.
-- Gym code lives in `src/components/Gym/`: `Gym.jsx`, `Plan.jsx`, `Exercises.jsx`, `ExerciseForm.jsx`, `ExerciseDetail.jsx`. `Today.jsx` comes in phase 3.
+- Gym code lives in `src/components/Gym/`: `Gym.jsx`, `Plan.jsx`, `Today.jsx`, `Exercises.jsx`, `ExerciseForm.jsx`, `ExerciseDetail.jsx`, `MuscleGroupForm.jsx`. Dialogs use the shared `components/Modal.jsx`.
 - Load muscle groups, exercises and the plan once when the Gym tab opens and refresh after each save. No global store.
-- Default section: **Plan** during phases 1 and 2 (Today does not exist yet), **Today** from phase 3 on.
-- Navigation inside Gym (list to exercise detail and back) is plain component state, no router.
+- Default section: **Today**.
+- Navigation inside Gym is plain component state, no router. Add, edit and detail forms open as popups (`Modal`), so the page behind them stays put.
 
 ### Plan section
 
@@ -232,10 +232,11 @@ Validation for sets: `weight_kg` between 0 and 1000 (0 allowed for bodyweight ex
 
 ### Exercises section
 
-- Exercises grouped by muscle group (collapsible sections or filter chips, whichever fits the existing style).
-- **Add exercise** with a name field and a group selector, defaulting to the group the user is currently looking at.
+- Exercises grouped by muscle group, one card per group, with **+ New muscle group** at the top.
+- **+ Add** on a group opens a popup to add an exercise to that group.
 - Empty groups show a short hint instead of a blank area.
-- **Tapping an exercise opens its detail view** (phase 2, built). The Edit button in that view handles rename, move to another group, and delete.
+- **Edit** on a group opens a popup to rename or delete the group, and lists its exercises. Tapping one opens its edit form (rename, move to another group, delete).
+- **Tapping an exercise opens its detail view** in a popup (phase 2). The Edit button there edits the exercise, and the set edit is its own popup.
 
 ### Exercise detail view (phase 2)
 
@@ -364,7 +365,7 @@ Phase 3:
 
 ## Out of scope
 
-Rest timer, drag-to-reorder exercises, supersets, plate calculator, templates beyond the weekly plan, offline sync queue, social features, calorie tracking, AI suggestions, multi-user support, renaming muscle groups from the UI, a separate manual PR table.
+Rest timer, drag-to-reorder exercises, supersets, plate calculator, templates beyond the weekly plan, offline sync queue, social features, calorie tracking, AI suggestions, multi-user support, a separate manual PR table. (Calorie tracking is covered by the Nutrition feature, see `FOODFEATURE.md`.)
 
 ## Assumptions to confirm later
 

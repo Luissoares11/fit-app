@@ -216,7 +216,8 @@ def test_profile_defaults_then_save(authed):
 
     body = {
         "name": "Luis", "start_weight_kg": 90, "goal_weight_kg": 80, "height_cm": 180, "age": 30,
-        "start_date": "2025-09-01", "checkin_weekday": 2, "checkin_every_weeks": 2,
+        "start_date": "2025-09-01", "sex": "female", "weight_loss_pace": "moderate",
+        "checkin_weekday": 2, "checkin_every_weeks": 2,
     }
     assert authed.put("/api/profile", json=body).json() == body
     assert authed.get("/api/profile").json() == body
@@ -864,3 +865,336 @@ def test_legacy_portuguese_names_are_renamed_once(tmp_path, monkeypatch):
     assert len(groups) == 9 and len(set(groups)) == 9
     assert "Flat barbell bench press" in exercises and "Dips" in exercises
     assert "Supino reto com barra" not in exercises
+
+
+# ---- Food: calories, energy, library, plan, overview ----
+
+from app import nutrition  # noqa: E402
+
+
+@pytest.fixture()
+def fresh_food(authed):
+    # The overview reads the latest check-in and the plan days, so start those empty
+    conn = sqlite3.connect(DATA / "fitness.db")
+    with conn:
+        conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM plan_days")
+        conn.execute("DELETE FROM food_weekdays")
+        conn.execute("DELETE FROM food_plans")  # its meals and items go too
+        conn.execute("DELETE FROM foods")
+    conn.close()
+    return authed
+
+
+def _profile(client, **overrides):
+    body = {
+        "name": None, "start_weight_kg": None, "goal_weight_kg": None, "height_cm": 180, "age": 30,
+        "start_date": None, "sex": "male", "weight_loss_pace": "moderate", "checkin_weekday": 0, "checkin_every_weeks": 1,
+    }
+    client.put("/api/profile", json={**body, **overrides})
+
+
+def _food(client, name, kcal):
+    return client.post("/api/food/foods", json={"name": name, "kcal_per_100g": kcal}).json()["id"]
+
+
+def test_kcal_helper():
+    assert nutrition.kcal(250, 200) == 500
+    assert nutrition.kcal(0, 100) == 0
+
+
+def test_bmr_both_sexes():
+    assert nutrition.bmr("male", 80, 180, 30) == pytest.approx(1780)
+    assert nutrition.bmr("female", 80, 180, 30) == pytest.approx(1614)
+
+
+@pytest.mark.parametrize("days,factor", [(0, 1.2), (1, 1.375), (2, 1.375), (3, 1.55), (4, 1.55), (5, 1.55), (6, 1.725), (7, 1.9)])
+def test_activity_factor_boundaries(days, factor):
+    assert nutrition.activity_factor(days) == factor
+
+
+def test_tdee_uses_activity_factor():
+    assert nutrition.tdee(1780, 3) == pytest.approx(1780 * 1.55)
+
+
+FOOD_ROUTES = [
+    ("get", "/api/food/foods"),
+    ("post", "/api/food/foods"),
+    ("patch", "/api/food/foods/1"),
+    ("delete", "/api/food/foods/1"),
+    ("get", "/api/food/plans"),
+    ("post", "/api/food/plans"),
+    ("get", "/api/food/plans/1"),
+    ("put", "/api/food/plans/1/meals"),
+    ("get", "/api/food/weekdays"),
+    ("put", "/api/food/weekdays"),
+    ("get", "/api/food/today"),
+    ("get", "/api/food/overview"),
+]
+
+
+@pytest.mark.parametrize("method,path", FOOD_ROUTES)
+def test_food_routes_require_auth(client, method, path):
+    assert getattr(client, method)(path).status_code == 401
+
+
+def test_food_library_crud(fresh_food):
+    client = fresh_food
+    oats = client.post("/api/food/foods", json={"name": "  Oats  ", "kcal_per_100g": 380, "protein_per_100g": 13})
+    assert oats.status_code == 201
+    assert oats.json()["name"] == "Oats"
+    assert oats.json()["plan_uses"] == 0
+    assert client.post("/api/food/foods", json={"name": "Oats", "kcal_per_100g": 1}).status_code == 409
+    assert client.post("/api/food/foods", json={"name": "Huge", "kcal_per_100g": 1200}).status_code == 422
+
+    updated = client.patch(f"/api/food/foods/{oats.json()['id']}", json={"kcal_per_100g": 370})
+    assert updated.json()["kcal_per_100g"] == 370
+    assert updated.json()["protein_per_100g"] == 13  # untouched fields stay
+    assert client.patch(f"/api/food/foods/{oats.json()['id']}", json={"name": None}).status_code == 422
+    assert client.patch("/api/food/foods/999999", json={"name": "Nope"}).status_code == 404
+
+    assert client.delete(f"/api/food/foods/{oats.json()['id']}").status_code == 204
+    assert client.delete(f"/api/food/foods/{oats.json()['id']}").status_code == 404
+
+
+def _plan(client, name="Training day"):
+    return client.post("/api/food/plans", json={"name": name}).json()["id"]
+
+
+def test_plan_replaces_and_computes_kcal(fresh_food):
+    client = fresh_food
+    rice = _food(client, "Rice", 130)
+    chicken = _food(client, "Chicken", 165)
+    plan = _plan(client)
+    r = client.put(f"/api/food/plans/{plan}/meals", json={"meals": [
+        {"name": "Lunch", "items": [{"food_id": rice, "grams": 200}, {"food_id": chicken, "grams": 150}]},
+        {"name": "Snack", "items": []},
+    ]})
+    assert r.status_code == 200
+    saved = r.json()
+    assert [m["position"] for m in saved["meals"]] == [1, 2]
+    assert saved["meals"][0]["kcal"] == pytest.approx(130 * 2 + 165 * 1.5, abs=0.1)
+    assert saved["kcal"] == saved["meals"][0]["kcal"]
+    assert client.get(f"/api/food/plans/{plan}").json()["meals"] == saved["meals"]
+
+    # A second save replaces the whole plan, not appends to it
+    client.put(f"/api/food/plans/{plan}/meals", json={"meals": [{"name": "Only", "items": [{"food_id": rice, "grams": 100}]}]})
+    assert len(client.get(f"/api/food/plans/{plan}").json()["meals"]) == 1
+
+
+def test_plan_rejects_bad_input_and_keeps_old_plan(fresh_food):
+    client = fresh_food
+    rice = _food(client, "Rice", 130)
+    plan = _plan(client)
+    client.put(f"/api/food/plans/{plan}/meals", json={"meals": [{"name": "Keep", "items": [{"food_id": rice, "grams": 100}]}]})
+    before = client.get(f"/api/food/plans/{plan}").json()
+
+    bad = [
+        {"meals": [{"name": "X", "items": [{"food_id": 999999, "grams": 100}]}]},  # unknown food
+        {"meals": [{"name": "X", "items": [{"food_id": rice, "grams": 0}]}]},  # grams must be positive
+        {"meals": [{"name": "   ", "items": []}]},  # meal needs a name
+        {"meals": [{"name": f"M{i}", "items": []} for i in range(11)]},  # too many meals
+    ]
+    for body in bad:
+        assert client.put(f"/api/food/plans/{plan}/meals", json=body).status_code == 422
+    assert client.get(f"/api/food/plans/{plan}").json() == before
+    assert client.put("/api/food/plans/999999/meals", json={"meals": []}).status_code == 404
+
+
+def test_deleting_food_removes_it_from_plan(fresh_food):
+    client = fresh_food
+    rice = _food(client, "Rice", 130)
+    oats = _food(client, "Oats", 380)
+    plan = _plan(client)
+    client.put(f"/api/food/plans/{plan}/meals", json={"meals": [
+        {"name": "Breakfast", "items": [{"food_id": oats, "grams": 80}, {"food_id": rice, "grams": 100}]},
+    ]})
+    listed = {f["id"]: f for f in client.get("/api/food/foods").json()}
+    assert listed[oats]["plan_uses"] == 1
+
+    assert client.delete(f"/api/food/foods/{oats}").status_code == 204
+    meal = client.get(f"/api/food/plans/{plan}").json()["meals"][0]
+    assert [i["food_id"] for i in meal["items"]] == [rice]  # the meal stays, the food is gone
+    assert meal["kcal"] == pytest.approx(130, abs=0.1)
+
+
+def test_plan_names_and_delete(fresh_food):
+    client = fresh_food
+    plan = _plan(client, "Rest day")
+    assert client.post("/api/food/plans", json={"name": "Rest day"}).status_code == 409
+    assert client.patch(f"/api/food/plans/{plan}", json={"name": "  Easy day "}).json()["name"] == "Easy day"
+    assert client.patch(f"/api/food/plans/{plan}", json={"name": ""}).status_code == 422
+    assert client.delete(f"/api/food/plans/{plan}").status_code == 204
+    assert client.get(f"/api/food/plans/{plan}").status_code == 404
+    assert client.delete(f"/api/food/plans/{plan}").status_code == 404
+
+
+def test_weekdays_pick_the_plan_for_each_day(fresh_food):
+    client = fresh_food
+    rice = _food(client, "Rice", 130)
+    weekday_plan = _plan(client, "Training")
+    rest_plan = _plan(client, "Rest")
+    client.put(f"/api/food/plans/{weekday_plan}/meals", json={"meals": [{"name": "Lunch", "items": [{"food_id": rice, "grams": 200}]}]})
+    client.put(f"/api/food/plans/{rest_plan}/meals", json={"meals": [{"name": "Light", "items": [{"food_id": rice, "grams": 100}]}]})
+
+    days = [{"weekday": d, "plan_id": weekday_plan if d < 5 else rest_plan} for d in range(7)]
+    saved = client.put("/api/food/weekdays", json={"days": days}).json()["days"]
+    assert [d["plan_name"] for d in saved] == ["Training"] * 5 + ["Rest"] * 2
+
+    assert client.get("/api/food/today?weekday=6").json()["plan_name"] == "Rest"
+    assert client.get("/api/food/today?weekday=0").json()["kcal"] == pytest.approx(260, abs=0.1)
+    overview = client.get("/api/food/overview?weekday=5").json()
+    assert overview["plan_name"] == "Rest"
+    assert overview["day_kcal"] == pytest.approx(130, abs=0.1)
+
+    # A day with no plan shows nothing rather than a guess
+    days[3] = {"weekday": 3, "plan_id": None}
+    client.put("/api/food/weekdays", json={"days": days})
+    assert client.get("/api/food/today?weekday=3").json()["meals"] == []
+
+    # Every weekday exactly once, and only plans that exist
+    assert client.put("/api/food/weekdays", json={"days": days[:6]}).status_code == 422
+    assert client.put("/api/food/weekdays", json={"days": days[:6] + [{"weekday": 0, "plan_id": None}]}).status_code == 422
+    assert client.put("/api/food/weekdays", json={"days": [{**d, "plan_id": 999999} for d in days]}).status_code == 422
+
+
+def test_overview_no_weight_or_profile_is_missing(fresh_food):
+    client = fresh_food
+    _profile(client, sex="male", height_cm=None, age=None, weight_loss_pace=None, goal_weight_kg=None, start_weight_kg=None)
+    o = client.get("/api/food/overview").json()
+    assert o["missing"] == ["height", "age", "weight", "weight loss pace", "goal weight", "meal plan on every day"]
+    assert o["weight_source"] is None
+    assert o["bmr"] is None and o["tdee"] is None and o["goal_kcal"] is None and o["deficit"] is None
+
+
+def test_overview_sex_missing_nulls_bmr_and_goal(fresh_food):
+    client = fresh_food
+    _profile(client, sex=None, goal_weight_kg=70)
+    client.post("/api/sessions", json={"date": "2026-10-01", "weight_kg": 82, "note": None})
+    o = client.get("/api/food/overview").json()
+    assert o["missing"] == ["sex", "meal plan on every day"]
+    assert o["bmr"] is None and o["tdee"] is None and o["goal_kcal"] is None and o["deficit"] is None
+    assert o["weight_loss_pace"] == "moderate"
+
+
+def test_overview_weight_falls_back_to_profile_start(fresh_food):
+    client = fresh_food
+    _profile(client, start_weight_kg=85, goal_weight_kg=75)
+    o = client.get("/api/food/overview").json()
+    assert o["weight_used"] == 85
+    assert o["weight_source"] == "profile_start"
+    assert "weight" not in o["missing"]
+
+
+def test_overview_goal_calories_from_weight_loss_pace(fresh_food):
+    client = fresh_food
+    groups = _group_ids(client)
+    # Three training days: factor 1.55
+    client.put("/api/plan", json={"days": [
+        {"weekday": 0, "muscle_group_ids": [groups["chest"]]},
+        {"weekday": 2, "muscle_group_ids": [groups["back"]]},
+        {"weekday": 4, "muscle_group_ids": [groups["legs"]]},
+    ]})
+    _profile(client, goal_weight_kg=70, weight_loss_pace="moderate")
+    client.post("/api/sessions", json={"date": "2026-09-30", "weight_kg": 80, "note": None})
+    client.post("/api/sessions", json={"date": "2026-10-01", "weight_kg": 82, "note": None})
+
+    o = client.get("/api/food/overview").json()
+    assert o["weight_used"] == 82  # latest check-in
+    assert o["weight_source"] == "checkin"
+    assert o["training_days_per_week"] == 3
+    assert o["bmr"] == 1800  # 10*82 + 6.25*180 - 5*30 + 5
+    assert o["tdee"] == 2790  # 1800 * 1.55
+    assert o["weekly_loss_kg"] == 0.5
+    assert o["deficit"] == 550  # 0.5 kg a week = 0.5 * 7700 / 7 kcal a day
+    assert o["goal_kcal"] == 2240  # tdee - deficit
+    assert o["weeks_to_goal"] == 24.0  # (82 - 70) / 0.5
+
+
+def test_overview_pace_changes_goal_and_weeks(fresh_food):
+    client = fresh_food
+    _profile(client, goal_weight_kg=70, weight_loss_pace="mild")
+    client.post("/api/sessions", json={"date": "2026-10-01", "weight_kg": 82, "note": None})
+    mild = client.get("/api/food/overview").json()
+    assert mild["deficit"] == 275 and mild["goal_kcal"] == 2160 - 275  # no training days: 1800 * 1.2 = 2160
+    assert mild["weeks_to_goal"] == 48.0
+
+    client.put("/api/profile", json={**client.get("/api/profile").json(), "weight_loss_pace": "extreme"})
+    extreme = client.get("/api/food/overview").json()
+    assert extreme["deficit"] == 1100 and extreme["weeks_to_goal"] == 12.0
+
+
+def test_overview_at_goal_weight_eats_at_maintenance(fresh_food):
+    client = fresh_food
+    _profile(client, goal_weight_kg=90, weight_loss_pace="aggressive")
+    client.post("/api/sessions", json={"date": "2026-10-01", "weight_kg": 82, "note": None})
+    o = client.get("/api/food/overview").json()
+    assert o["deficit"] == 0
+    assert o["goal_kcal"] == o["tdee"]
+    assert o["weeks_to_goal"] == 0
+
+
+def test_intake_status_boundaries():
+    from app.nutrition import intake_status
+    assert intake_status(2000, 1800) == "more"
+    assert intake_status(1900, 1800) == "on_deficit"  # exactly 100 over is still on the deficit
+    assert intake_status(1800, 1800) == "on_deficit"
+    assert intake_status(1700, 1800) == "on_deficit"
+    assert intake_status(1699, 1800) == "less"
+
+
+def test_overview_week_intake_compares_plan_with_goal(fresh_food):
+    client = fresh_food
+    food = _food(client, "Test rice", 100)  # 100 kcal per 100 g
+    plan = _plan(client, "Week plan")
+
+    def set_grams(grams):
+        client.put(f"/api/food/plans/{plan}/meals", json={"meals": [
+            {"name": "Lunch", "items": [{"food_id": food, "grams": grams}]},
+        ]})
+
+    client.put("/api/food/weekdays", json={"days": [{"weekday": d, "plan_id": plan} for d in range(7)]})
+    # Male, 30, 180 cm, 82 kg, no training days: TDEE 1800 * 1.2 = 2160; mild pace to 70 kg is 275 a day, goal 1885
+    _profile(client, goal_weight_kg=70, weight_loss_pace="mild")
+    client.post("/api/sessions", json={"date": "2026-10-01", "weight_kg": 82, "note": None})
+
+    set_grams(2000)
+    o = client.get("/api/food/overview").json()
+    assert o["week_kcal_avg"] == 2000 and o["goal_kcal"] == 1885
+    assert o["intake_vs_goal"] == 115 and o["intake_status"] == "more"
+
+    set_grams(1900)
+    assert client.get("/api/food/overview").json()["intake_status"] == "on_deficit"
+
+    set_grams(1500)
+    o = client.get("/api/food/overview").json()
+    assert o["intake_vs_goal"] == -385 and o["intake_status"] == "less"
+
+
+def test_overview_week_intake_needs_a_plan_on_every_day(fresh_food):
+    client = fresh_food
+    food = _food(client, "Test oats", 380)
+    plan = _plan(client, "Partial week")
+    client.put(f"/api/food/plans/{plan}/meals", json={"meals": [{"name": "Breakfast", "items": [{"food_id": food, "grams": 60}]}]})
+    days = [{"weekday": d, "plan_id": plan if d < 6 else None} for d in range(7)]
+    client.put("/api/food/weekdays", json={"days": days})
+    _profile(client, goal_weight_kg=70, weight_loss_pace="mild")
+    o = client.get("/api/food/overview").json()
+    assert o["week_kcal_avg"] is None and o["intake_status"] is None
+    assert "meal plan on every day" in o["missing"]
+
+
+def test_overview_week_days_flag_those_below_average(fresh_food):
+    client = fresh_food
+    food = _food(client, "Test pasta", 100)
+    big = _plan(client, "Big day")
+    small = _plan(client, "Small day")
+    client.put(f"/api/food/plans/{big}/meals", json={"meals": [{"name": "Dinner", "items": [{"food_id": food, "grams": 2000}]}]})
+    client.put(f"/api/food/plans/{small}/meals", json={"meals": [{"name": "Dinner", "items": [{"food_id": food, "grams": 1000}]}]})
+    # Five big days and two small: the average is 1,714 kcal, so only the two small days are below it
+    days = [{"weekday": d, "plan_id": small if d >= 5 else big} for d in range(7)]
+    client.put("/api/food/weekdays", json={"days": days})
+    _profile(client, goal_weight_kg=70, weight_loss_pace="mild")
+    week = client.get("/api/food/overview").json()["week_days"]
+    assert [d["below_average"] for d in week] == [False] * 5 + [True] * 2
+    assert week[5]["kcal"] == 1000

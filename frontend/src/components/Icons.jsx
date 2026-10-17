@@ -35,6 +35,15 @@ export const GymIcon = () => (
   </svg>
 )
 
+export const FoodIcon = () => (
+  <svg {...base}>
+    <path d="M7 3v7a2 2 0 0 0 2 2v9" />
+    <path d="M5 3v5" />
+    <path d="M9 3v5" />
+    <path d="M17 21V3c-2 1-3 3-3 6v4h3" />
+  </svg>
+)
+
 export const ProgressIcon = () => (
   <svg {...base}>
     <path d="M3 17l6-6 4 4 8-8" />

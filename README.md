@@ -6,15 +6,20 @@ training plans, an exercise library and personal records (PRs).
 
 ## Features
 
-- **Dashboard:** today's gym plan (weekday and muscle groups), progress from start weight to goal weight, and a weight chart.
+- **Dashboard:** a greeting with your first name and the week number since your start date, today's gym plan (tap it to open Gym), progress from start weight to goal weight, with the time left at your pace (tap it to open Progress), a weight chart of the last five registers, and today's meals (tap to open Nutrition).
 - **Register:** log weight and up to three photos (front, back, side). A countdown shows the next check-in, with a "Log now" button for early check-ins. Dates are typed as `dd/mm/yyyy`.
 - **Gym**
-  - **Today:** today's planned muscle groups and exercises, each with its PR. Tap an exercise to log sets.
+  - **Today:** today's planned muscle groups and exercises, each with its PR. Tap an exercise to open it.
   - **Plan:** a weekly schedule (Monday to Sunday). Each day is rest or training, with one or more muscle groups.
-  - **Exercises:** the library grouped by muscle group. Add, rename, move and delete exercises. Add, rename and delete muscle groups. Deleting an exercise also deletes its logged sets, and the app warns you first.
-  - **Exercise detail:** log sets (date, weight, reps), see records (heaviest, estimated 1RM, best weight per rep count, most reps for bodyweight) and the full history. Edit and delete sets.
+  - **Exercises:** the library grouped by muscle group, with a new-group button at the top. Add exercises, and edit a group to rename or delete it. Its exercises are listed in that popup, and each opens its edit form. Deleting an exercise also deletes its logged sets, and the app warns you first.
+  - **Exercise popup:** log sets (date, weight, reps), see records (heaviest, estimated 1RM, best weight per rep count, most reps for bodyweight) and the full history. Edit and delete sets, and edit the exercise, all in popups.
 - **Progress:** current and goal BMI, starting and latest photos, and the full history of weights and photos. Sessions can be deleted.
-- **Profile:** name, age, height, start and goal weight, and the check-in day and repeat (every 1 to 4 weeks).
+- **Profile:** name, age, sex, height, start weight and its date, goal weight, weight loss pace (mild to extreme), and the check-in day and repeat (every 1 to 4 weeks).
+- **Nutrition:** a food library (kcal and macros per 100 g), weekly meal plans, and an overview.
+  - **Meals:** the food library. Add, edit and delete foods.
+  - **Plan:** a weekly schedule that picks a plan for each day, and a box per plan. Tapping a box opens its meals in a popup, where you set the number of meals and add foods by grams.
+  - **Overview:** BMR (Mifflin-St Jeor), TDEE (BMR times an activity factor from your training days), goal calories calculated from your weight loss pace and goal weight, the time to reach the goal, and whether this week's meal plans put you eating less, on your deficit, or more than the goal. Missing profile values show N/A with the list of what is missing.
+  - The full design is in `FOODFEATURE.md`.
 
 PRs are never entered by hand. They are calculated from the logged sets, so the records always match the history. A set beats a PR only when it is strictly better than every earlier set, including sets logged for past dates. Ties are not PRs.
 
@@ -113,10 +118,12 @@ npm run build
 ## Project layout
 
 ```
-backend/app/        FastAPI app: routes, database schema, PR logic (records.py)
+backend/app/        FastAPI app: routes, database schema, PR logic (records.py), food routes (routes/food.py)
 backend/tests/      Backend tests (tests.py)
-frontend/src/       React app: pages in components/, gym screens in components/Gym/
-frontend/GYMPLAN.md Design notes and decisions for the gym feature
+frontend/src/       React app: pages in components/, gym screens in components/Gym/, nutrition screens in components/Food/
+GYMPLAN.md          Design notes and decisions for the gym feature
+FOODFEATURE.md      Design notes for the nutrition feature
+backend/app/nutrition.py  Calorie, BMR, activity-factor and weight-loss formulas (the only place they live)
 data/               Runtime data (git-ignored)
 ```
 

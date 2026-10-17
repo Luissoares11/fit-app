@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { getMuscleGroups, getPlan, getProfile, getWeights } from '../api'
-import { WEEKDAY_NAMES, daysBetween, formatDay, localDay, toDay, weekdayIndex } from '../dates'
+import { getFoodOverview, getMuscleGroups, getPlan, getProfile, getTodayPlan, getWeights } from '../api'
+import { WEEKDAY_NAMES, daysBetween, formatDay, formatTimeLeft, localDay, toDay, weekdayIndex } from '../dates'
 import WeightChart from './WeightChart'
+import { FoodMeals } from './Food/FoodOverview'
 
 // Week 1 is the first seven days from the start date. Null when the date is not set or in the future.
 function weekSince(startDate) {
@@ -28,7 +29,8 @@ function Greeting({ profile }) {
 }
 
 // points: the start weight (if set) followed by the logged weights, oldest first
-function GoalProgress({ profile, points, onOpen }) {
+// weeklyLoss: the pace from Profile in kg a week, or null when no pace is set
+function GoalProgress({ profile, points, weeklyLoss, onOpen }) {
   const goal = profile.goal_weight_kg
   if (!goal) return <p className="muted">Set your goal weight in Profile to see progress.</p>
 
@@ -69,7 +71,13 @@ function GoalProgress({ profile, points, onOpen }) {
       </div>
       <div className="goal-foot">
         <span className="muted">start {start.toFixed(1)} kg</span>
-        <span>{reached ? 'Goal reached' : `${Math.abs(current - goal).toFixed(1)} kg to go`}</span>
+        <span>
+          {reached
+            ? 'Goal reached'
+            : weeklyLoss
+              ? `${formatTimeLeft((current - goal) / weeklyLoss)} to go`
+              : `${Math.abs(current - goal).toFixed(1)} kg to go`}
+        </span>
       </div>
     </section>
   )
@@ -117,24 +125,28 @@ function TodayPlan({ groups, plan, onOpen }) {
   )
 }
 
-export default function Dashboard({ onOpenGym, onOpenProgress }) {
+export default function Dashboard({ onOpenGym, onOpenProgress, onOpenFood }) {
   const [profile, setProfile] = useState(null)
   const [weights, setWeights] = useState(null)
   const [gym, setGym] = useState(null) // { groups, plan }
+  const [foodPlan, setFoodPlan] = useState(null) // { meals, kcal }
+  const [nutrition, setNutrition] = useState(null) // overview: the pace in kg a week
   const [error, setError] = useState('')
 
   useEffect(() => {
-    Promise.all([getProfile(), getWeights(), getMuscleGroups(), getPlan()])
-      .then(([p, w, groups, plan]) => {
+    Promise.all([getProfile(), getWeights(), getMuscleGroups(), getPlan(), getTodayPlan(weekdayIndex(localDay())), getFoodOverview(weekdayIndex(localDay()))])
+      .then(([p, w, groups, plan, food, overview]) => {
         setProfile(p)
         setWeights(w)
         setGym({ groups, plan })
+        setFoodPlan(food)
+        setNutrition(overview)
       })
       .catch((err) => setError(err.message))
   }, [])
 
   if (error) return <p className="status error">{error}</p>
-  if (!profile || !weights || !gym) return <p className="muted center">Loading…</p>
+  if (!profile || !weights || !gym || !foodPlan || !nutrition) return <p className="muted center">Loading…</p>
 
   // The start weight from Profile counts as the first register, even before any check-in
   const points = profile.start_weight_kg
@@ -147,11 +159,28 @@ export default function Dashboard({ onOpenGym, onOpenProgress }) {
 
       <TodayPlan groups={gym.groups} plan={gym.plan} onOpen={onOpenGym} />
 
+      <div
+        className="dash-tap"
+        role="button"
+        tabIndex={0}
+        aria-label="Open nutrition"
+        onClick={onOpenFood}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onOpenFood()
+          }
+        }}
+      >
+        <h2 className="section-title">Today's Meals{foodPlan.plan_name ? ` · ${foodPlan.plan_name}` : ''}</h2>
+        <FoodMeals meals={foodPlan.meals} total={foodPlan.kcal} />
+      </div>
+
       {points.length === 0 ? (
         <p className="muted center">Log your first check-in to see your progress.</p>
       ) : (
         <>
-          <GoalProgress profile={profile} points={points} onOpen={onOpenProgress} />
+          <GoalProgress profile={profile} points={points} weeklyLoss={nutrition.weekly_loss_kg} onOpen={onOpenProgress} />
           <section className="card">
             <WeightChart points={points.slice(-5)} />
           </section>

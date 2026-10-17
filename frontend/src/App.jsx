@@ -5,13 +5,15 @@ import Dashboard from './components/Dashboard'
 import Register from './components/Register'
 import Gym from './components/Gym/Gym'
 import Progress from './components/Progress'
+import Food from './components/Food/Food'
 import Profile from './components/Profile'
-import { DashboardIcon, GymIcon, ProfileIcon, ProgressIcon, RegisterIcon } from './components/Icons'
+import { DashboardIcon, FoodIcon, GymIcon, ProfileIcon, ProgressIcon, RegisterIcon } from './components/Icons'
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', Page: Dashboard, Icon: DashboardIcon },
   { id: 'register', label: 'Register', Page: Register, Icon: RegisterIcon },
   { id: 'gym', label: 'Gym', Page: Gym, Icon: GymIcon },
+  { id: 'food', label: 'Nutrition', Page: Food, Icon: FoodIcon },
   { id: 'progress', label: 'Progress', Page: Progress, Icon: ProgressIcon },
   { id: 'profile', label: 'Profile', Page: Profile, Icon: ProfileIcon },
 ]
@@ -63,7 +65,7 @@ export default function App() {
           </button>
         </header>
 
-        <current.Page onOpenGym={() => setTab('gym')} onOpenProgress={() => setTab('progress')} />
+        <current.Page onOpenGym={() => setTab('gym')} onOpenProgress={() => setTab('progress')} onOpenFood={() => setTab('food')} />
       </main>
 
       <div

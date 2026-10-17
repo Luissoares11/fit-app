@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS profile (
     height_cm REAL,
     age INTEGER,
     start_date TEXT,
+    sex TEXT,
+    weight_loss_pace TEXT,
     checkin_weekday INTEGER NOT NULL DEFAULT 0,
     checkin_every_weeks INTEGER NOT NULL DEFAULT 1
 );
@@ -58,6 +60,35 @@ CREATE TABLE IF NOT EXISTS workout_sets (
 );
 CREATE INDEX IF NOT EXISTS idx_workout_sets_exercise ON workout_sets(exercise_id);
 CREATE INDEX IF NOT EXISTS idx_workouts_date ON workouts(date);
+CREATE TABLE IF NOT EXISTS foods (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    kcal_per_100g REAL NOT NULL CHECK (kcal_per_100g >= 0),
+    protein_per_100g REAL,
+    carbs_per_100g REAL,
+    fat_per_100g REAL
+);
+CREATE TABLE IF NOT EXISTS food_plans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS plan_meals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL REFERENCES food_plans(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    UNIQUE (plan_id, position)
+);
+CREATE TABLE IF NOT EXISTS food_weekdays (
+    weekday INTEGER PRIMARY KEY CHECK (weekday BETWEEN 0 AND 6),
+    plan_id INTEGER REFERENCES food_plans(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS plan_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_meal_id INTEGER NOT NULL REFERENCES plan_meals(id) ON DELETE CASCADE,
+    food_id INTEGER NOT NULL REFERENCES foods(id),
+    grams REAL NOT NULL CHECK (grams > 0)
+);
 """
 
 MUSCLE_GROUPS = [
@@ -123,6 +154,7 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
         _migrate_profile(conn)
         _drop_exercise_archive(conn)
+        _migrate_food_plans(conn)
         _rename_legacy(conn)
         _seed_gym(conn)
 
@@ -134,10 +166,47 @@ def _migrate_profile(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE profile DROP COLUMN checkin_every_days")
     if "start_date" not in cols:
         conn.execute("ALTER TABLE profile ADD COLUMN start_date TEXT")
+    if "sex" not in cols:
+        conn.execute("ALTER TABLE profile ADD COLUMN sex TEXT")
+    if "weight_loss_pace" not in cols:
+        conn.execute("ALTER TABLE profile ADD COLUMN weight_loss_pace TEXT")
+    if "goal_kcal" in cols:
+        # Replaced by weight_loss_pace: goal calories are now calculated
+        conn.execute("ALTER TABLE profile DROP COLUMN goal_kcal")
     if "checkin_weekday" not in cols:
         conn.execute("ALTER TABLE profile ADD COLUMN checkin_weekday INTEGER NOT NULL DEFAULT 0")
     if "checkin_every_weeks" not in cols:
         conn.execute("ALTER TABLE profile ADD COLUMN checkin_every_weeks INTEGER NOT NULL DEFAULT 1")
+
+
+def _migrate_food_plans(conn: sqlite3.Connection) -> None:
+    # Before named plans, meals were one plan for every day. Keep them as "Plan 1" on all seven days.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(plan_meals)")}
+    if "plan_id" in cols:
+        return
+    has_meals = conn.execute("SELECT COUNT(*) FROM plan_meals").fetchone()[0] > 0
+    plan_id = None
+    if has_meals:
+        plan_id = conn.execute("INSERT INTO food_plans (name) VALUES ('Plan 1')").lastrowid
+    # Rebuild the table with plan_id. Foreign keys are off on this connection, so the drop does not cascade.
+    conn.execute("""
+        CREATE TABLE plan_meals_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            plan_id INTEGER NOT NULL REFERENCES food_plans(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            UNIQUE (plan_id, position)
+        )""")
+    if has_meals:
+        conn.execute(
+            "INSERT INTO plan_meals_new (id, plan_id, position, name) SELECT id, ?, position, name FROM plan_meals",
+            (plan_id,),
+        )
+        conn.executemany(
+            "INSERT OR REPLACE INTO food_weekdays (weekday, plan_id) VALUES (?, ?)", [(d, plan_id) for d in range(7)]
+        )
+    conn.execute("DROP TABLE plan_meals")
+    conn.execute("ALTER TABLE plan_meals_new RENAME TO plan_meals")
 
 
 def _drop_exercise_archive(conn: sqlite3.Connection) -> None:

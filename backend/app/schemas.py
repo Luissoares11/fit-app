@@ -26,9 +26,69 @@ class ProfileIn(BaseModel):
     age: int | None = Field(None, ge=5, lt=120)
     # The day the start weight was logged; the dashboard counts weeks from it
     start_date: date_type | None = None
+    # Mifflin-St Jeor needs sex. No default: null until the user picks one
+    sex: Literal["male", "female"] | None = None
+    # Pace of weight loss; goal calories are calculated from it, never typed in
+    weight_loss_pace: Literal["mild", "moderate", "aggressive", "extreme"] | None = None
     # 0 = Monday, same as Python's date.weekday()
     checkin_weekday: int = Field(0, ge=0, le=6)
     checkin_every_weeks: int = Field(1, ge=1, le=4)
+
+
+FoodName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
+MealName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+
+
+class FoodIn(BaseModel):
+    name: FoodName
+    kcal_per_100g: float = Field(ge=0, le=1000)
+    protein_per_100g: float | None = Field(None, ge=0, le=100)
+    carbs_per_100g: float | None = Field(None, ge=0, le=100)
+    fat_per_100g: float | None = Field(None, ge=0, le=100)
+
+
+class FoodPatch(BaseModel):
+    name: FoodName | None = None
+    kcal_per_100g: float | None = Field(None, ge=0, le=1000)
+    protein_per_100g: float | None = Field(None, ge=0, le=100)
+    carbs_per_100g: float | None = Field(None, ge=0, le=100)
+    fat_per_100g: float | None = Field(None, ge=0, le=100)
+
+
+class PlanItemIn(BaseModel):
+    food_id: int
+    grams: float = Field(gt=0, le=5000)
+
+
+class PlanMealIn(BaseModel):
+    name: MealName
+    items: list[PlanItemIn] = Field(default_factory=list, max_length=50)
+
+
+class FoodPlanIn(BaseModel):
+    meals: list[PlanMealIn] = Field(max_length=10)
+
+
+PlanName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+
+
+class FoodPlanNameIn(BaseModel):
+    name: PlanName
+
+
+class WeekdayPlanIn(BaseModel):
+    weekday: int = Field(ge=0, le=6)
+    plan_id: int | None = None
+
+
+class WeekdayPlansIn(BaseModel):
+    days: list[WeekdayPlanIn] = Field(min_length=7, max_length=7)
+
+    @model_validator(mode="after")
+    def one_per_weekday(self):
+        if sorted(d.weekday for d in self.days) != list(range(7)):
+            raise ValueError("Give each weekday exactly once")
+        return self
 
 
 class MuscleGroupIn(BaseModel):

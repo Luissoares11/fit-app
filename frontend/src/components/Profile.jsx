@@ -12,13 +12,29 @@ const REPEAT_OPTIONS = [
   { value: 4, label: 'Every 4 weeks' },
 ]
 
+const PACE_OPTIONS = [
+  { value: '', label: 'Not set' },
+  { value: 'mild', label: 'Mild: 0.25 kg a week' },
+  { value: 'moderate', label: 'Moderate: 0.5 kg a week' },
+  { value: 'aggressive', label: 'Aggressive: 0.75 kg a week' },
+  { value: 'extreme', label: 'Extreme: 1 kg a week' },
+]
+
+const SEX_OPTIONS = [
+  { value: '', label: 'Not set' },
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+]
+
 const FIELDS = [
   { key: 'name', label: 'Name', mode: 'text' },
   { key: 'age', label: 'Age', mode: 'numeric', integer: true },
   { key: 'height_cm', label: 'Height (cm)', mode: 'decimal' },
+  { key: 'sex', label: 'Sex', options: SEX_OPTIONS },
   { key: 'start_weight_kg', label: 'Start weight (kg)', mode: 'decimal' },
   { key: 'start_date', label: 'Start weight date', mode: 'date' },
   { key: 'goal_weight_kg', label: 'Goal weight (kg)', mode: 'decimal' },
+  { key: 'weight_loss_pace', label: 'Weight loss pace', options: PACE_OPTIONS },
   { key: 'checkin_weekday', label: 'Check-in day', integer: true, options: WEEKDAY_OPTIONS },
   { key: 'checkin_every_weeks', label: 'Check-in repeats', integer: true, options: REPEAT_OPTIONS },
 ]
@@ -56,6 +72,10 @@ export default function Profile() {
       const body = {}
       for (const { key, integer } of FIELDS) {
         if (key === 'start_date') continue
+        if (key === 'sex' || key === 'weight_loss_pace') {
+          body[key] = form[key] || null
+          continue
+        }
         body[key] = key === 'name' ? form.name.trim() || null : parse(form[key], integer)
       }
       // Start date: what was typed, else today when a start weight is saved without one

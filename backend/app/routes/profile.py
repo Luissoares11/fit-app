@@ -15,6 +15,8 @@ FIELDS = (
     "height_cm",
     "age",
     "start_date",
+    "sex",
+    "weight_loss_pace",
     "checkin_weekday",
     "checkin_every_weeks",
 )
