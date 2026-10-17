@@ -11,12 +11,12 @@ training plans, an exercise library and personal records (PRs).
 - **Gym**
   - **Today:** today's planned muscle groups and exercises, each with its PR. Tap an exercise to open it.
   - **Plan:** a weekly schedule (Monday to Sunday). Each day is rest or training, with one or more muscle groups.
-  - **Exercises:** the library grouped by muscle group, with a new-group button at the top. Add exercises, and edit a group to rename or delete it. Its exercises are listed in that popup, and each opens its edit form. Deleting an exercise also deletes its logged sets, and the app warns you first.
+  - **Exercises:** the library grouped by muscle group, with a new-group button and a CSV import at the top. Add exercises, and edit a group to rename or delete it. Its exercises are listed in that popup, and each opens its edit form. Deleting an exercise also deletes its logged sets, and the app warns you first.
   - **Exercise popup:** log sets (date, weight, reps), see records (heaviest, estimated 1RM, best weight per rep count, most reps for bodyweight) and the full history. Edit and delete sets, and edit the exercise, all in popups.
 - **Progress:** current and goal BMI, starting and latest photos, and the full history of weights and photos. Sessions can be deleted.
 - **Profile:** name, age, sex, height, start weight and its date, goal weight, weight loss pace (mild to extreme), and the check-in day and repeat (every 1 to 4 weeks).
 - **Nutrition:** a food library (kcal and macros per 100 g), weekly meal plans, and an overview.
-  - **Meals:** the food library. Add, edit and delete foods.
+  - **Meals:** the food library. Add, edit and delete foods, or import them from a CSV.
   - **Plan:** a weekly schedule that picks a plan for each day, and a box per plan. Tapping a box opens its meals in a popup, where you set the number of meals and add foods by grams.
   - **Overview:** BMR (Mifflin-St Jeor), TDEE (BMR times an activity factor from your training days), goal calories calculated from your weight loss pace and goal weight, the time to reach the goal, and whether this week's meal plans put you eating less, on your deficit, or more than the goal. Missing profile values show N/A with the list of what is missing.
   - The full design is in `FOODFEATURE.md`.
@@ -123,7 +123,9 @@ backend/tests/      Backend tests (tests.py)
 frontend/src/       React app: pages in components/, gym screens in components/Gym/, nutrition screens in components/Food/
 GYMPLAN.md          Design notes and decisions for the gym feature
 FOODFEATURE.md      Design notes for the nutrition feature
+IMPORTPLAN.md       Design notes for the CSV import of foods and exercises
 backend/app/nutrition.py  Calorie, BMR, activity-factor and weight-loss formulas (the only place they live)
+backend/app/importer.py   CSV reading and validation for the imports
 data/               Runtime data (git-ignored)
 ```
 

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import ExerciseDetail from './ExerciseDetail'
 import ExerciseForm from './ExerciseForm'
 import MuscleGroupForm from './MuscleGroupForm'
+import ImportCsv from '../ImportCsv'
 import Modal from '../Modal'
 
 const countLabel = (n) => (n === 1 ? '1 exercise' : `${n} exercises`)
@@ -11,6 +12,7 @@ export default function Exercises({ groups, exercises, onChanged }) {
   const [addingGroup, setAddingGroup] = useState(false) // "new muscle group" popup
   const [editingGroupId, setEditingGroupId] = useState(null) // group for the "edit muscle group" popup
   const [editingExerciseId, setEditingExerciseId] = useState(null) // exercise for the form opened from a group
+  const [importing, setImporting] = useState(false)
   const [openId, setOpenId] = useState(null) // exercise whose detail view is open
 
   const opened = openId === null ? null : exercises.find((e) => e.id === openId) ?? null
@@ -20,9 +22,14 @@ export default function Exercises({ groups, exercises, onChanged }) {
 
   return (
     <div className="ex-page">
-      <button className="primary ex-new-group" onClick={() => setAddingGroup(true)}>
-        + New muscle group
-      </button>
+      <div className="ex-toolbar">
+        <button className="primary" onClick={() => setAddingGroup(true)}>
+          + New muscle group
+        </button>
+        <button className="primary" onClick={() => setImporting(true)}>
+          Import CSV
+        </button>
+      </div>
 
       {groups.map((g) => {
         const items = exercises.filter((e) => e.muscle_group_id === g.id)
@@ -62,6 +69,19 @@ export default function Exercises({ groups, exercises, onChanged }) {
           </section>
         )
       })}
+
+      {importing && (
+        <Modal open title="Import exercises" onClose={() => setImporting(false)}>
+          <ImportCsv
+            path="/exercises/import"
+            templateUrl="/templates/exercises.csv"
+            templateName="exercises.csv"
+            instructions="One row per exercise. Use the same muscle group name for exercises that belong together, for example Chest or Back."
+            onImported={onChanged}
+            onDone={() => setImporting(false)}
+          />
+        </Modal>
+      )}
 
       {addingTo && (
         <Modal open title="New exercise" subtitle={addingTo.name} onClose={() => setAdding(null)}>

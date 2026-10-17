@@ -1806,3 +1806,103 @@ button:focus-visible {
   border: 1px solid var(--error);
   border-radius: 999px;
 }
+
+/* CSV import: toolbar on the library screens, and the import dialog */
+.ex-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ex-toolbar .primary {
+  flex: 1;
+  width: auto;
+}
+
+.import {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.import-instructions {
+  margin: 0 0 4px;
+}
+
+.import-template {
+  align-self: flex-start;
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.import-counts {
+  display: flex;
+  justify-content: space-around;
+  padding: 12px 0;
+  font-size: 14px;
+  text-align: center;
+}
+
+.import-counts strong {
+  display: block;
+  font-size: 22px;
+}
+
+.import-counts .bad {
+  color: var(--error);
+}
+
+.import-new-groups {
+  margin: 8px 0;
+  padding: 12px 14px;
+  background: var(--bg);
+  border-radius: 12px;
+}
+
+.import-new-groups ul {
+  margin: 4px 0;
+  padding-left: 18px;
+  font-weight: 600;
+}
+
+.import-details {
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.import-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.import-details ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.import-details.warn summary {
+  color: var(--fg);
+}
+
+.import-details.bad summary {
+  color: var(--error);
+}
+
+.import-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.import-done {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.import-result {
+  margin: 0;
+  font-size: 16px;
+}

@@ -1198,3 +1198,108 @@ def test_overview_week_days_flag_those_below_average(fresh_food):
     week = client.get("/api/food/overview").json()["week_days"]
     assert [d["below_average"] for d in week] == [False] * 5 + [True] * 2
     assert week[5]["kcal"] == 1000
+
+
+# ---- CSV import ----
+
+def _csv(client, path, text, confirm=False, raw=None):
+    body = raw if raw is not None else text.encode("utf-8")
+    return client.post(path, files={"file": ("import.csv", body, "text/csv")}, data={"confirm": "true" if confirm else "false"})
+
+
+FOOD_CSV_HEADER = "name,kcal_per_100g,protein_per_100g,carbs_per_100g,fat_per_100g\n"
+
+
+def test_food_import_preview_then_confirm(fresh_food):
+    client = fresh_food
+    text = FOOD_CSV_HEADER + "Oats,380,13,58,6\nBanana,89,1,23,0.3\nBad,abc,0,0,0\n"
+    preview = _csv(client, "/api/food/foods/import", text).json()
+    assert preview["to_add"] == 2
+    assert [i["reason"] for i in preview["invalid"]] == ["kcal is not a number"]
+    assert client.get("/api/food/foods").json() == []  # nothing saved yet
+
+    done = _csv(client, "/api/food/foods/import", text, confirm=True).json()
+    assert done["added"] == 2 and done["invalid"] == 1
+    assert sorted(f["name"] for f in client.get("/api/food/foods").json()) == ["Banana", "Oats"]
+
+
+def test_food_import_skips_duplicates_ignoring_case_and_spaces(fresh_food):
+    client = fresh_food
+    _food(client, "Oats", 380)
+    text = FOOD_CSV_HEADER + "  oats ,380,0,0,0\nRice,130,2,28,0\nRICE,130,2,28,0\n"
+    preview = _csv(client, "/api/food/foods/import", text).json()
+    assert preview["to_add"] == 1
+    assert [s["reason"] for s in preview["skipped"]] == ["already in your library", "repeated in this file"]
+
+
+def test_food_import_validates_kcal_and_macros(fresh_food):
+    client = fresh_food
+    text = FOOD_CSV_HEADER + "Too rich,1200,0,0,0\nNegative,-5,0,0,0\nBlank,,0,0,0\nWet,100,abc,0,0\nHeavy,100,150,0,0\n"
+    reasons = [i["reason"] for i in _csv(client, "/api/food/foods/import", text).json()["invalid"]]
+    assert reasons == [
+        "kcal must be between 0 and 900 per 100 g",
+        "kcal must be between 0 and 900 per 100 g",
+        "kcal is empty",
+        "protein is not a number",
+        "protein must be between 0 and 100 g per 100 g",
+    ]
+
+
+def test_food_import_warnings_still_import(fresh_food):
+    client = fresh_food
+    text = FOOD_CSV_HEADER + "Oil,884,0,0,100\nBig macros,100,60,60,0\n"
+    preview = _csv(client, "/api/food/foods/import", text).json()
+    assert preview["to_add"] == 2
+    assert len(preview["warnings"]) == 2
+
+
+def test_food_import_accepts_semicolons_and_decimal_commas(fresh_food):
+    client = fresh_food
+    text = "name;kcal_per_100g;protein_per_100g\nYogurt;59;10,2\n"
+    assert _csv(client, "/api/food/foods/import", text, confirm=True).json()["added"] == 1
+    yogurt = next(f for f in client.get("/api/food/foods").json() if f["name"] == "Yogurt")
+    assert yogurt["protein_per_100g"] == pytest.approx(10.2)
+
+
+def test_import_rejects_missing_columns_and_bad_files(fresh_food):
+    client = fresh_food
+    missing = _csv(client, "/api/food/foods/import", "name,protein_per_100g\nOats,13\n")
+    assert missing.status_code == 422 and "kcal_per_100g" in missing.json()["detail"]
+
+    exercises = _csv(client, "/api/exercises/import", "exercise\nSquat\n")
+    assert exercises.status_code == 422 and "muscle_group" in exercises.json()["detail"]
+
+    not_utf8 = _csv(client, "/api/food/foods/import", "", raw="name,kcal_per_100g\nCafé,1\n".encode("latin-1"))
+    assert not_utf8.status_code == 422
+
+    too_big = _csv(client, "/api/food/foods/import", "", raw=b"name,kcal_per_100g\n" + b"x" * 1_000_001)
+    assert too_big.status_code == 413
+
+
+def test_exercise_import_creates_new_muscle_groups(fresh_food):
+    client = fresh_food
+    text = "exercise,muscle_group\nSeated calf raise,neck\nGlute bridge,Glutes\nNordic curl,hamstrings\n"
+    preview = _csv(client, "/api/exercises/import", text).json()
+    assert preview["to_add"] == 3
+    assert preview["new_muscle_groups"] == ["neck", "hamstrings"]  # "Glutes" already exists
+    assert "neck" not in [g["name"] for g in client.get("/api/muscle-groups").json()]  # not until confirmed
+
+    done = _csv(client, "/api/exercises/import", text, confirm=True).json()
+    assert done["added"] == 3 and done["new_muscle_groups"] == ["neck", "hamstrings"]
+    assert "hamstrings" in [g["name"] for g in client.get("/api/muscle-groups").json()]
+
+
+def test_exercise_import_skips_duplicates_and_reuses_groups(fresh_food):
+    client = fresh_food
+    groups = _group_ids(client)
+    client.post("/api/exercises", json={"name": "Lat pulldown", "muscle_group_id": groups["back"]})
+    text = "exercise,muscle_group\nlat PULLDOWN, Back \nSeated row,BACK\nSeated row,back\nWrong group,\n"
+    preview = _csv(client, "/api/exercises/import", text).json()
+    assert preview["to_add"] == 1 and preview["new_muscle_groups"] == []
+    assert [s["reason"] for s in preview["skipped"]] == ["already in back", "repeated in this file"]
+    assert [i["reason"] for i in preview["invalid"]] == ["muscle group is empty"]
+
+
+@pytest.mark.parametrize("path", ["/api/food/foods/import", "/api/exercises/import"])
+def test_import_requires_auth(client, path):
+    assert client.post(path, files={"file": ("x.csv", b"a,b\n", "text/csv")}).status_code == 401

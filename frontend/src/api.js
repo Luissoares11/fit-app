@@ -54,6 +54,13 @@ async function request(path, options = {}) {
   export const saveWeekdays = (days) => request('/food/weekdays', json('PUT', { days }))
   export const getTodayPlan = (weekday) => request(`/food/today?weekday=${weekday}`)
   export const getFoodOverview = (weekday) => request(`/food/overview?weekday=${weekday}`)
+  // Upload a CSV: confirm=false previews, confirm=true imports
+  export function importCsv(path, file, confirm) {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('confirm', confirm ? 'true' : 'false')
+    return request(path, { method: 'POST', body: form })
+  }
   export const getPlan = () => request('/plan')
   export const savePlan = (data) => request('/plan', json('PUT', data))
   export const logSets = (exerciseId, data) => request(`/exercises/${exerciseId}/sets`, json('POST', data))

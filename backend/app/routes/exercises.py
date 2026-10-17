@@ -1,9 +1,10 @@
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile
 
 from ..auth import require_token
 from ..db import get_db
+from ..importer import ImportFileError, read_rows
 from ..schemas import ExerciseIn, ExercisePatch, MuscleGroupIn
 
 router = APIRouter(dependencies=[Depends(require_token)])
@@ -157,3 +158,64 @@ def delete_exercise(exercise_id: int, conn: sqlite3.Connection = Depends(get_db)
             if left == 0:
                 conn.execute("DELETE FROM workouts WHERE id = ?", (workout_id,))
         conn.execute("DELETE FROM exercises WHERE id = ?", (exercise_id,))
+
+
+EXERCISE_IMPORT_REQUIRED = ("exercise", "muscle_group")
+
+
+@router.post("/exercises/import")
+async def import_exercises(file: UploadFile, confirm: bool = Form(False), conn: sqlite3.Connection = Depends(get_db)):
+    """Preview an exercises CSV (confirm=false) or import it (confirm=true). Unknown muscle groups are created on import."""
+    content = await file.read()
+    try:
+        rows = read_rows(content, EXERCISE_IMPORT_REQUIRED)
+    except ImportFileError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail)
+
+    group_ids = {r[0].lower(): r[1] for r in conn.execute("SELECT name, id FROM muscle_groups")}
+    existing = {
+        (r[0].lower(), r[1].lower())
+        for r in conn.execute("SELECT e.name, g.name FROM exercises e JOIN muscle_groups g ON g.id = e.muscle_group_id")
+    }
+    seen: set[tuple[str, str]] = set()
+    to_add, skipped, invalid = [], [], []
+    new_groups: list[str] = []
+
+    for line, row in rows:
+        name, group = row["exercise"], row["muscle_group"].lower()
+        if not name:
+            invalid.append({"line": line, "reason": "exercise name is empty"})
+            continue
+        if not group:
+            invalid.append({"line": line, "name": name, "reason": "muscle group is empty"})
+            continue
+        if len(name) > 80 or len(group) > 40:
+            invalid.append({"line": line, "name": name, "reason": "name or muscle group is too long"})
+            continue
+
+        key = (name.lower(), group)
+        if key in existing:
+            skipped.append({"line": line, "name": name, "reason": f"already in {group}"})
+            continue
+        if key in seen:
+            skipped.append({"line": line, "name": name, "reason": "repeated in this file"})
+            continue
+        seen.add(key)
+
+        if group not in group_ids and group not in new_groups:
+            new_groups.append(group)
+        to_add.append({"name": name, "group": group})
+
+    if confirm:
+        with conn:
+            for group in new_groups:
+                cur = conn.execute("INSERT INTO muscle_groups (name) VALUES (?)", (group,))
+                group_ids[group] = cur.lastrowid
+            for exercise in to_add:
+                conn.execute(
+                    "INSERT INTO exercises (name, muscle_group_id) VALUES (?, ?)",
+                    (exercise["name"], group_ids[exercise["group"]]),
+                )
+        return {"added": len(to_add), "skipped": len(skipped), "invalid": len(invalid), "new_muscle_groups": new_groups}
+
+    return {"to_add": len(to_add), "skipped": skipped, "invalid": invalid, "new_muscle_groups": new_groups}

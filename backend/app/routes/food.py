@@ -1,10 +1,11 @@
 import sqlite3
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
 
 from ..auth import require_token
 from ..db import get_db
+from ..importer import KCAL_MAX, KCAL_WARN, ImportFileError, read_rows, to_number
 from ..nutrition import WEIGHT_LOSS_PACES, bmr, daily_deficit, intake_status, kcal, tdee
 from ..schemas import FoodIn, FoodPatch, FoodPlanIn, FoodPlanNameIn, WeekdayPlansIn
 
@@ -331,3 +332,84 @@ def overview(weekday: int | None = Query(None, ge=0, le=6), conn: sqlite3.Connec
         "week_days": week_days,
         "missing": missing,
     }
+
+
+# ---- CSV import ----
+
+FOOD_IMPORT_REQUIRED = ("name", "kcal_per_100g")
+FOOD_MACROS = ("protein_per_100g", "carbs_per_100g", "fat_per_100g")
+
+
+@router.post("/foods/import")
+async def import_foods(file: UploadFile, confirm: bool = Form(False), conn: sqlite3.Connection = Depends(get_db)):
+    """Preview a foods CSV (confirm=false) or import it (confirm=true). Invalid rows are skipped, the rest import."""
+    content = await file.read()
+    try:
+        rows = read_rows(content, FOOD_IMPORT_REQUIRED)
+    except ImportFileError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail)
+
+    existing = {r[0].lower() for r in conn.execute("SELECT name FROM foods")}
+    seen: set[str] = set()
+    to_add, skipped, invalid, warnings = [], [], [], []
+
+    for line, row in rows:
+        name = row["name"]
+        if not name:
+            invalid.append({"line": line, "reason": "name is empty"})
+            continue
+        if len(name) > 80:
+            invalid.append({"line": line, "name": name, "reason": "name is longer than 80 characters"})
+            continue
+        try:
+            kcal = to_number(row["kcal_per_100g"])
+        except ValueError:
+            invalid.append({"line": line, "name": name, "reason": "kcal is not a number"})
+            continue
+        if kcal is None:
+            invalid.append({"line": line, "name": name, "reason": "kcal is empty"})
+            continue
+        if not 0 <= kcal <= KCAL_MAX:
+            invalid.append({"line": line, "name": name, "reason": f"kcal must be between 0 and {KCAL_MAX} per 100 g"})
+            continue
+
+        macros, bad = {}, None
+        for column in FOOD_MACROS:
+            try:
+                value = to_number(row.get(column, ""))
+            except ValueError:
+                bad = f"{column.split('_')[0]} is not a number"
+                break
+            if value is not None and not 0 <= value <= 100:
+                bad = f"{column.split('_')[0]} must be between 0 and 100 g per 100 g"
+                break
+            macros[column] = value
+        if bad:
+            invalid.append({"line": line, "name": name, "reason": bad})
+            continue
+
+        key = name.lower()
+        if key in existing:
+            skipped.append({"line": line, "name": name, "reason": "already in your library"})
+            continue
+        if key in seen:
+            skipped.append({"line": line, "name": name, "reason": "repeated in this file"})
+            continue
+        seen.add(key)
+
+        if kcal > KCAL_WARN:
+            warnings.append({"line": line, "name": name, "reason": f"{kcal:g} kcal is high for 100 g, check it is not per serving"})
+        if sum(v or 0 for v in macros.values()) > 100:
+            warnings.append({"line": line, "name": name, "reason": "protein + carbs + fat is more than 100 g per 100 g"})
+        to_add.append({"name": name, "kcal_per_100g": kcal, **macros})
+
+    if confirm:
+        with conn:
+            for food in to_add:
+                conn.execute(
+                    "INSERT INTO foods (name, kcal_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g) VALUES (?, ?, ?, ?, ?)",
+                    (food["name"], food["kcal_per_100g"], food["protein_per_100g"], food["carbs_per_100g"], food["fat_per_100g"]),
+                )
+        return {"added": len(to_add), "skipped": len(skipped), "invalid": len(invalid)}
+
+    return {"to_add": len(to_add), "skipped": skipped, "invalid": invalid, "warnings": warnings}
